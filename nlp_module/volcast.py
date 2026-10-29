@@ -21,12 +21,12 @@ from .trial_forecast import CLOSE_UTC
 from .walk_forward import FOLDS, _split
 
 FEATS = ["ret1", "ret5", "ret20", "vol10", "vol20", "ma20", "range", "vz", "mret1", "mret5"] + fundamentals.BCTC
-VERSION = "volcast-v2"   # v1 = price only; v2 adds BCTC (higher validation coverage at 0.65 in 5 of 6 fold x h)
+VERSION = "volcast-v2.1"   # v1 = price only; v2 adds BCTC; v2.1 = Wilson-bound gate + purge/seam/sort fixes
 BUNDLE = "data/models/volcast.joblib"
 REPORT = "data/volcast_report.json"
 HORIZONS = (2, 5)
 COLS = ["date", "symbol", "close", "high", "low", "volume"]
-RET_BAND = 0.072   # exchange daily limit is 7%; a bigger live move means the previous row is not the exchange's reference (corporate action or calendar gap); if ref == previous close the fix changes nothing
+RET_BAND = 0.072   # exchange daily limit is 7% (+ price rounding); a bigger daily move means a corporate action or a calendar gap
 
 
 def load_history(stock_dir="data/stock"):
@@ -54,11 +54,10 @@ def live_bars(c):
 
 def bars(c, stock_dir="data/stock"):
     """History wins on a shared (symbol, date): it is the vendor's final bar, live is our own last read."""
-    # ponytail: no calendar check at the history/live seam (history ends 2026-10-21, live starts 2026-10-26; 22-23/10 are
-    # missing from both). add_features rolls over available rows, so ret*/vol*/ma20/vz windows span the missing sessions
-    # for ~20 sessions after the seam. Upgrade: reindex to the exchange calendar and NaN windows that cross a gap.
+    # ponytail: sessions missed by both sources (22-23/10 at the seam, 28/10 machine off) are skipped, not reindexed: live
+    # ret1 comes from the exchange ref so it stays a one-session return, but rolling windows hold fewer calendar days
+    # and the skipped sessions' returns are lost from ret5/ret20/ma20. Upgrade: backfill the bars if a source appears.
     h, lv = load_history(stock_dir), live_bars(c)
-    # ponytail: fixes ret1 only; ret5/ret20/ma20 still span the unadjusted jump, and cash dividends under the 7.2% band pass through. Upgrade: back-adjust earlier closes by ref/prev_close on live ex-dates.
     lv = lv[lv.symbol.isin(h.symbol.unique())]   # tickers outside the history universe would skew mret*, the label median, predictions
     df = pd.concat([h, lv], ignore_index=True)
     df = df.drop_duplicates(["symbol", "date"], keep="first")
@@ -69,14 +68,16 @@ def add_features(df, bctc=None):
     """Backward-looking only. Warm-up rows (first ~20 sessions per symbol) keep NaN features; callers drop them.
     bctc: fundamentals.bctc_features() output, loaded from data/bctc.parquet when None."""
     df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
+    df["ret1"] = df.groupby("symbol").close.pct_change(1)
+    if "ref" in df:   # live rows: the exchange ref is the previous session's close adjusted for corporate actions
+        live = df.ref > 0
+        df.loc[live, "ret1"] = df.close[live] / df.ref[live] - 1
+    df["adj"] = (1 + df.ret1.fillna(0)).groupby(df.symbol).cumprod()   # price index, continuous across live ex-dates
     g = df.groupby("symbol")
-    df["ret1"], df["ret5"], df["ret20"] = g.close.pct_change(1), g.close.pct_change(5), g.close.pct_change(20)
-    if "ref" in df:   # live rows: the exchange ref price is the dividend-adjusted previous close
-        fix = (df.ref > 0) & (df.ret1.abs() > RET_BAND)
-        df.loc[fix, "ret1"] = df.close[fix] / df.ref[fix] - 1
+    df["ret5"], df["ret20"] = g.adj.pct_change(5), g.adj.pct_change(20)
     df["vol10"] = g.ret1.transform(lambda x: x.rolling(10).std())
     df["vol20"] = g.ret1.transform(lambda x: x.rolling(20).std())
-    df["ma20"] = df.close / g.close.transform(lambda x: x.rolling(20).mean()) - 1
+    df["ma20"] = df.adj / g.adj.transform(lambda x: x.rolling(20).mean()) - 1
     df["range"] = (df.high - df.low) / df.close
     df["vz"] = np.log1p(df.volume) - g.volume.transform(lambda x: np.log1p(x).rolling(20).mean())
     df["mret1"] = df.groupby("date").ret1.transform("mean")
@@ -98,11 +99,13 @@ def wilson(k, n, z=1.96):
 
 
 def pick_threshold(conf, ok, min_acc=0.65, min_n=50):
-    """Smallest confidence c (= widest coverage) whose rows conf >= c hit min_acc over at least min_n calls, else None."""
+    """Smallest confidence c (= widest coverage) whose rows conf >= c have a Wilson 95% lower bound >= min_acc over at
+    least min_n calls, else None. The point accuracy just reaching min_acc (v2) regressed to ~0.57 on test in fold C."""
     o = np.argsort(-conf, kind="stable")
     cs, k = conf[o], np.arange(1, len(conf) + 1)
     edge = np.r_[cs[1:] != cs[:-1], True]   # a threshold keeps every tied row, so only cut between distinct values
-    good = np.flatnonzero(edge & (k >= min_n) & (np.cumsum(ok[o]) / k >= min_acc))
+    lb = np.array([wilson(a, n)[0] for a, n in zip(np.cumsum(ok[o]), k)])
+    good = np.flatnonzero(edge & (k >= min_n) & (lb >= min_acc))
     return float(cs[good[-1]]) if len(good) else None
 
 
@@ -127,7 +130,7 @@ def walk(df, h):
     """df = add_features output. Per fold: fit on train, pick the threshold on val, refit on train+val, score test once.
     Strong (y=1) means the ticker's |forward return| beats the day's cross-sectional median."""
     y = f"y{h}"
-    d = tf.add_targets(df.copy(), h, "absmove").dropna(subset=FEATS)
+    d = tf.add_targets(df.assign(close=df.adj), h, "absmove").dropna(subset=FEATS)   # adj: labels across ex-dates too
     out = []
     for name, *dates in FOLDS:
         tr, va, trva, te = _split(d, h, *dates)
@@ -157,7 +160,7 @@ def walk(df, h):
 def fit_live(df, h, fold_row):
     """Refit fold C's winning model kind on every labelled row. No winner -> logit with threshold None (no calls)."""
     kind, y = fold_row["model"] or "logit", f"y{h}"
-    d = tf.add_targets(df.copy(), h, "absmove").dropna(subset=FEATS + [y])
+    d = tf.add_targets(df.assign(close=df.adj), h, "absmove").dropna(subset=FEATS + [y])
     return dict(model=MODELS[kind]().fit(d[FEATS], d[y]), threshold=fold_row["threshold"] if fold_row["model"] else None,
                 kind=kind)
 

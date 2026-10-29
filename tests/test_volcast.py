@@ -75,6 +75,7 @@ def test_pick_threshold():
     assert volcast.pick_threshold(conf, ok) == 0.2
     assert volcast.pick_threshold(conf, ok, min_n=80) is None
     assert volcast.pick_threshold(conf, np.zeros(100, bool)) is None
+    assert volcast.pick_threshold(np.full(50, 0.3), np.arange(50) < 33) is None   # 0.66 point, bound ~0.52
 
 
 def test_wilson():
@@ -187,6 +188,8 @@ def test_dividend_seam_fixes_live_ret1_only():
     assert out.loc[("BBB", df.loc[b, "date"]), "ret1"] == pytest.approx(-0.3)
     aaa = out.loc["AAA"]                              # the fix must land before vol10 is computed
     assert aaa.vol10.iloc[-1] == pytest.approx(aaa.ret1.iloc[-10:].std())
+    assert aaa.ret5.iloc[-1] == pytest.approx((1 + aaa.ret1.iloc[-5:]).prod() - 1)   # level features skip the jump too
+    assert abs(aaa.ma20.iloc[-1]) < 0.15
 
 
 def test_dividend_seam_ignores_missing_or_zero_ref():

@@ -543,17 +543,56 @@ The purge also changed v2's own selection: comparing the live report (`data/volc
 Rerunning `python -m nlp_module.volcast train` will therefore change the live model. Five flips in six rows put the
 logit/gbm pick at noise level.
 
+**v2.1 fixes (2026-10-29).** Two bugs, no feature or gate change:
+1. `walk_forward._split` sorted by date with an unstable sort, so adding rows anywhere (e.g. new live days) reordered
+   same-day training rows and flipped the logit/gbm pick in folds that do not contain those days (B5 went gbm -> logit
+   when the 2026-10-29 bar arrived). It now sorts by (date, symbol), stably; folds A and B are identical with and
+   without the live rows. This is the "five flips in six rows" noted above: the pick is decided at the 4th decimal.
+2. Live `ret1` is always `close / ref - 1` (SSI ref = previous session's close, adjusted for corporate actions), not
+   only beyond the 7.2% band. `ret5`, `ret20`, `ma20` and the labels are computed on a price index chained from `ret1`,
+   so they no longer span a raw ex-date jump (TCB 2026-10-29: ref 22.35 vs previous close 33.55). History rows are
+   unchanged (the index is the close rescaled).
+
+v2.1 eval (`data/volcast_eval_v2_1.txt`, fold C test now includes live 2026-10-26..29): test_acc A2 0.638 (n 94),
+B2 0.659, C2 0.569, A5 0.690, B5 0.693, C5 0.592 (n 549); mean 0.6402, mean (model - vol-rank rule) +0.0302.
+
+**Wilson gate trial (pre-registered 2026-10-29, before the run).** Threshold = widest validation coverage whose Wilson
+95% *lower bound* is >= 0.65 (>= 50 calls), instead of the point accuracy; everything else as v2.1. Ship only if
+(a) mean over the 6 rows of (test_acc - rule_acc) > +0.0302 (a row with no calls counts 0), because narrowing alone
+lifts accuracy for the rule too; (b) fold C test_acc >= v2.1 (0.569 at h=2, 0.592 at h=5); (c) fold C test_n >= 100
+at both h. Caveat: these test windows have been read several times before (v1, v2, v3, v2fixed), so a pass is weaker
+evidence than a first look. A hard coverage cap (e.g. 30%) was not tried: its value would come from fold C's test.
+
+Result (`data/volcast_eval_wilson.txt`, one run):
+
+| fold | h | model | val_acc | test_acc v2.1 → Wilson | test_n v2.1 → Wilson | CI 95% Wilson | rule_acc | model - rule |
+|---|---|---|---|---|---|---|---|---|
+| A | 2 | logit | 0.710 | 0.638 → 0.636 | 94 → 415 | [0.589, 0.681] | 0.564 | +0.072 |
+| B | 2 | gbm | 0.729 | 0.659 → 0.647 | 492 → 150 | [0.567, 0.719] | 0.627 | +0.020 |
+| C | 2 | gbm | 0.687 | 0.569 → 0.626 | 656 → 470 | [0.581, 0.668] | 0.543 | +0.083 |
+| A | 5 | logit | 0.707 | 0.690 → 0.720 | 600 → 421 | [0.675, 0.760] | 0.625 | +0.095 |
+| B | 5 | gbm | 0.701 | 0.693 → 0.696 | 869 → 672 | [0.661, 0.730] | 0.668 | +0.028 |
+| C | 5 | gbm | 0.692 | 0.592 → 0.620 | 549 → 229 | [0.556, 0.680] | 0.590 | +0.030 |
+
+(a) **pass**: +0.0549 > +0.0302. (b) **pass**: C2 0.626 >= 0.569, C5 0.620 >= 0.592. (c) **pass**: 470 and 229.
+Mean test_acc 0.6574 (v2.1 0.6402). **Shipped as `volcast-v2.1`** (bundle retrained 2026-10-29 on v2 features with all
+fixes; previous bundle and report kept as `data/models/volcast-v2-prepurge.joblib`, `data/volcast_report-v2-prepurge.json`).
+Fold C still lands below 0.65 on test (0.626, 0.620), although both CIs now include 0.65; the gate is better
+calibrated, not solved. B2 lost (fewer calls, lower accuracy).
+
 **Limitations**
-- Live bars come from SSI, in VND /1000 and **not dividend-adjusted**. On live ex-dates whose raw move exceeds 7.2%,
-  ret1 (and so vol10, vol20, mret1) is computed from the SSI ref price. ret5, ret20, ma20 and mret5 still span the
-  unadjusted jump, and cash dividends under the band pass through unchanged.
-- 2026-10-22 and 2026-10-23 are missing from both sources, so rolling windows span that gap for ~20 sessions.
+- Live bars come from SSI, in VND /1000 and **not dividend-adjusted**. Since v2.1, live ret1 is taken from the SSI ref
+  price and level features and labels use a price index chained from ret1, so ex-dates no longer leak a jump.
+- Sessions missing from both sources (2026-10-22/23 at the seam; 2026-10-28, machine off from 10:00) are skipped, not
+  filled: rolling windows then hold fewer calendar days, and the skipped sessions' returns are absent from
+  ret5/ret20/ma20. No allowed source serves past daily bars; keeping the machine on through 15:15 avoids new gaps.
 - SSI `volume` is normal-matched volume and may exclude put-through trades. This biases `vz` after the seam.
 - Text and HOSE earnings-filing features are not used (no gain). BCTC values are annual and lag up to ~15 months.
 - `data/bctc.parquet` must exist (README); train and predict fail without it rather than silently impute.
 - The v1 → v2 table and `data/volcast_report.json` were computed before validation was purged of the h sessions
   before the test start (~h×15 rows per fold); the purged v2 numbers are the v2fixed column of the v3 trial table.
-  The walk_forward text/rank sections of the report also use `walk_forward._split` and are pre-purge too.
+  The walk_forward text/rank sections of the report also use `walk_forward._split` and are pre-purge and pre-sort-fix
+  (v2.1 fix 1), so their val picks can differ at the 4th decimal if rerun.
 
 **How to run**
 ```

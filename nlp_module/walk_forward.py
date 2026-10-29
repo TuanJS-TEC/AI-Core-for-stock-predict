@@ -50,7 +50,7 @@ def _auc(model, d, cols, h):
 
 
 def _split(d, h, train_start, val_start, test_start, test_end):
-    d = d.dropna(subset=PRICE + [f"y{h}"]).sort_values("date")
+    d = d.dropna(subset=PRICE + [f"y{h}"]).sort_values(["date", "symbol"], kind="stable")   # unstable sort reorders same-day rows when unrelated rows are added, which flips model picks
     dates = sorted(d.date.unique())
     pos = lambda t: next(i for i, x in enumerate(dates) if x >= pd.Timestamp(t))
     i0, iv, it = pos(train_start), pos(val_start), pos(test_start)

@@ -807,7 +807,7 @@ Mã chỉ xuất hiện như **khoản đầu tư / đối tác / mốc địa l
     m[3].metric("Bỏ qua vì thiếu tự tin", f"{w72['uncertain'].mean():.0%}" if len(w72) else "—",
                 help="Tỷ lệ cửa sổ 72h bị abstain (entropy vượt ngưỡng đã chọn trên validation).")
     m[4].metric("Bằng chứng yếu", f"{w72['difficult'].mean():.0%}" if len(w72) else "—",
-                help="Passage có công ty khác lẫn vào, hoặc chỉ có title mà không có câu nào trong thân bài.")
+                help="Passage có công ty khác lẫn vào, hoặc không có câu nào trong thân bài nhắc tới mã này (chỉ khớp ở title).")
 
     if len(kept) == 0 and len(w72) > 0:
         st.warning("Cả cửa sổ 72h đều bị abstain → **không có** giá trị sentiment. "
@@ -923,9 +923,10 @@ Mã chỉ xuất hiện như **khoản đầu tư / đối tác / mốc địa l
 - nguồn: {r.source} · [mở bài gốc]({r.url})
 {("- cờ: " + flags) if flags else ""}
 """)
-            if r.difficult and len(r.passage_text) < 140:
-                pc[1].warning("Passage gần như chỉ có title — model không tìm được câu nào trong thân bài "
-                              "nhắc tới mã này. Cùng một bài báo có thể cho mã khác điểm khác hẳn.")
+            if r.difficult:   # the row has no "title-only" flag, so this also fires for other-company mixing
+                pc[1].warning("Bằng chứng yếu — có thể không câu nào trong thân bài nhắc tới mã này (chỉ khớp ở title, "
+                              "model đọc thêm câu mở đầu), hoặc passage có công ty khác lẫn vào. "
+                              "Cùng một bài báo có thể cho mã khác điểm khác hẳn.")
 
     # ── the forecast question, answered honestly ────────────────────────────
     st.subheader("Dự báo giá?")

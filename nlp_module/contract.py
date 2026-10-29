@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from statistics import mean, pstdev
 
-FEATURE_VERSION = "v2"   # v2 adds difficult_ratio
+FEATURE_VERSION = "v3"   # v3 adds sentiment_abs_max, sentiment_shock_24h, sentiment_decay
 WINDOW_H = 72   # lookback for sentiment/quality features; news_count_24h/72h are fixed windows
 # ponytail: fixed backtest delay; make it per-source if timestamps prove unreliable
 BACKTEST_DELAY = timedelta(minutes=30)
@@ -57,8 +57,8 @@ def build_snapshot(results, symbol, cutoff, mode="live", nlp_model_version="base
              and available_at(r, mode) <= cutoff]
     age = lambda r: cutoff - available_at(r, mode)
     win = [r for r in avail if age(r) <= timedelta(hours=WINDOW_H)]   # sentiment/quality features use this window
-    # ponytail: uncertain results excluded from sentiment means (never counted as neutral); unweighted,
-    # recency weighting is a later experiment
+    # ponytail: uncertain results excluded from sentiment means (never counted as neutral); sentiment_mean stays
+    # unweighted, the recency-weighted variant is sentiment_decay (v3)
     def sent(rs):
         s = [r.p_pos - r.p_neg for r in rs if not r.uncertain]
         return (mean(s) if s else None), (pstdev(s) if len(s) > 1 else None)
@@ -75,6 +75,13 @@ def build_snapshot(results, symbol, cutoff, mode="live", nlp_model_version="base
          "direct_news_ratio": sum(r.relation == "direct" for r in win) / len(win) if win else None}
     f["sentiment_mean"], f["sentiment_std"] = sent(win)
     f["sentiment_mean_24h"], _ = sent([r for r in win if age(r) <= timedelta(hours=24)])
+    # intensity / shock / recency-weighted (half-life 24h) sentiment, all over non-uncertain results in win
+    ok = [r for r in win if not r.uncertain]
+    d = lambda r: r.p_pos - r.p_neg
+    w = lambda r: 0.5 ** (age(r).total_seconds() / 3600 / 24)
+    f["sentiment_abs_max"] = max(abs(d(r)) for r in ok) if ok else None
+    f["sentiment_shock_24h"] = abs(f["sentiment_mean_24h"]) if f["sentiment_mean_24h"] is not None else None
+    f["sentiment_decay"] = sum(w(r) * d(r) for r in ok) / sum(w(r) for r in ok) if ok else None
     # None = missing; imputation is the consumer's explicit policy (no news != neutral)
     return Snapshot(symbol, cutoff, FEATURE_VERSION, nlp_model_version, mode, f, [r.result_id for r in win])
 

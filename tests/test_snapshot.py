@@ -1,5 +1,6 @@
 import unittest
-from nlp_module.contract import build_snapshot, utc
+from datetime import timedelta
+from nlp_module.contract import ArticleCompanyResult, build_snapshot, utc
 from nlp_module.synthetic import synthetic_results
 
 R = synthetic_results()
@@ -46,3 +47,29 @@ class WindowTest(unittest.TestCase):
         self.assertIsNone(f["sentiment_mean"])
         self.assertGreater(f["hours_since_last_news"], 72)
         self.assertEqual(s.lineage, [])
+
+
+def _r(i, hours_before, pos, neg, unc=False, cut=utc(2026, 1, 5, 8)):
+    t = cut - timedelta(hours=hours_before) - timedelta(minutes=30)        # backtest availability = published + 30 min
+    return ArticleCompanyResult(f"r{i}", "AAA", "s", t, t, "direct", pos, 1 - pos - neg, neg, uncertain=unc)
+
+
+class V3Test(unittest.TestCase):
+    def test_intensity_shock_decay(self):
+        rs = [_r(1, 0, 0.9, 0.0), _r(2, 24, 0.0, 0.6)]                    # +0.9 now, -0.6 one half-life ago
+        f = build_snapshot(rs, "AAA", utc(2026, 1, 5, 8), "backtest").features
+        self.assertAlmostEqual(f["sentiment_abs_max"], 0.9)
+        self.assertAlmostEqual(f["sentiment_shock_24h"], abs(f["sentiment_mean_24h"]))
+        self.assertAlmostEqual(f["sentiment_decay"], (0.9 * 1 + (-0.6) * 0.5) / 1.5)
+
+    def test_uncertain_result_does_not_count_toward_abs_max_or_decay(self):
+        rs = [_r(1, 0, 0.5, 0.0), _r(2, 0, 0.99, 0.0, unc=True)]          # certain +0.5; uncertain +0.99 must be ignored
+        f = build_snapshot(rs, "AAA", utc(2026, 1, 5, 8), "backtest").features
+        self.assertAlmostEqual(f["sentiment_abs_max"], 0.5)
+        self.assertAlmostEqual(f["sentiment_decay"], 0.5)
+
+    def test_all_uncertain_window_is_none(self):
+        f = build_snapshot([_r(1, 1, 0.9, 0.0, unc=True)], "AAA", utc(2026, 1, 5, 8), "backtest").features
+        self.assertIsNone(f["sentiment_abs_max"])
+        self.assertIsNone(f["sentiment_decay"])
+        self.assertIsNone(f["sentiment_shock_24h"])

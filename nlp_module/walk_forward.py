@@ -55,7 +55,7 @@ def _split(d, h, train_start, val_start, test_start, test_end):
     pos = lambda t: next(i for i, x in enumerate(dates) if x >= pd.Timestamp(t))
     i0, iv, it = pos(train_start), pos(val_start), pos(test_start)
     # purge h sessions before each boundary: a label at day i looks h sessions ahead
-    return (d[d.date.isin(dates[i0:iv - h])], d[d.date.isin(dates[iv:it])],
+    return (d[d.date.isin(dates[i0:iv - h])], d[d.date.isin(dates[iv:max(it - h, iv)])],
             d[d.date.isin(dates[i0:it - h])], d[(d.date >= dates[it]) & (d.date < pd.Timestamp(test_end))])
 
 
@@ -86,13 +86,14 @@ def main(argv=None):
     ap.add_argument("--target", default="direction", choices=["direction", "excess", "absmove"])
     ap.add_argument("--fund", action="store_true", help="add HOSE earnings-change features to the val search")
     ap.add_argument("--bctc", action="store_true", help="add annual audited-statement features to the val search")
+    ap.add_argument("--news3", action="store_true", help="add v3 news features to the val search")
     a = ap.parse_args(argv)
     c = storage.connect()
     prices = tf.load_prices(a.prices)
     for h in (2, 5):
         prices = tf.add_targets(prices, h, a.target)
     prices = prices[prices.date >= "2021-10-21"]   # first collected news day
-    extras = {k: v for k, v in (("fund", fundamentals.FUND), ("bctc", fundamentals.BCTC)) if getattr(a, k)}
+    extras = {k: v for k, v in (("fund", fundamentals.FUND), ("bctc", fundamentals.BCTC), ("news3", tf.NEWS3)) if getattr(a, k)}
     rows = []
     for name, t0, v0, s0, e0 in FOLDS:
         version = f"phobert-fold{name}" if a.skip_nlp else nlp_model(c, name, v0, s0)
@@ -103,6 +104,8 @@ def main(argv=None):
             d = fundamentals.add_fund(d, fundamentals.load(c))
         if a.bctc:
             d = fundamentals.add_bctc(d, fundamentals.bctc_features())
+        if a.news3:
+            d = tf.add_news_surprise(d)   # on raw counts, before rank_cs
         ds = {rk: (tf.rank_cs(d, cols) if cols else d) for rk, cols in RANK_COLS.items()}
         for h in (2, 5):
             r, pick, ntr, nva, nte = forecast_fold(ds, h, t0, v0, s0, e0, extras)

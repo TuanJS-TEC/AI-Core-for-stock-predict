@@ -506,23 +506,261 @@ v1's are in `data/volcast_report-v1.json`, and its bundle is kept as `data/model
 **Why v2.** Selection is on validation: at the same 0.65 validation accuracy, v2 covers more rows in 5 of 6 fold × h
 (C5 is the exception). On test, v2 trades accuracy for coverage in A and B (B5: 0.733 on 8.5% → 0.686 on 36.5%, i.e.
 121 → 488 correct calls). In the live fold C it is better on both horizons. **Fold C at h=2 is the first row where
-the model's CI clears the vol-rank rule's** (0.625 [0.583, 0.666] vs 0.532 [0.489, 0.574]). At h=5 the CIs still
+the model's CI clears the vol-rank rule's** (pre-purge; see v3 trial) (0.625 [0.583, 0.666] vs 0.532 [0.489, 0.574]). At h=5 the CIs still
 touch (0.604 [0.563, 0.643] vs 0.546 [0.505, 0.587]). Model minus rule: +0.041, +0.032, +0.093 at h=2 and -0.003,
 +0.024, +0.058 at h=5 (A, B, C). The rule still matches the model in A5. Caveats: (1) the BCTC experiments were read on
 test before this choice, although the stated criterion is validation coverage; (2) with 15 tickers, BCTC values are
 nearly per-ticker constants, so part of the gain may be "this ticker is usually volatile", which is ex-ante knowledge
 but not news; (3) fold C still lands below 0.65 on test.
 
+**v3 trial (2026-10-29, not shipped).** v3 added `vol_ratio` (vol10/vol20, 1.0 for a flat ticker) and per-day
+cross-sectional ranks of vol10, vol20, range and |ret1|, picked the model by validation coverage (then accuracy) and
+raised the validation threshold to >= 0.665. It was compared once against `v2fixed` = v2 features and selection with
+the two bug fixes of 2026-10-29 (validation purged of the h sessions before test; live ret1 taken from the exchange ref
+price across dividend seams). Files: `data/volcast_eval_v2fixed.txt`, `data/volcast_eval_v3.txt`.
+
+| fold | h | model v2fixed → v3 | val_cov | test_acc | test_cov | test_n | CI 95% v2fixed | CI 95% v3 | rule_acc |
+|---|---|---|---|---|---|---|---|---|---|
+| A | 2 | gbm → logit | 7.3% → 16.4% | 0.655 → 0.657 | 7.1% → 16.9% | 139 → 329 | [0.572, 0.729] | [0.604, 0.706] | 0.568 → 0.590 |
+| B | 2 | logit → logit | 27.7% → 33.2% | 0.659 → 0.670 | 25.2% → 39.1% | 492 → 763 | [0.616, 0.699] | [0.636, 0.702] | 0.638 → 0.640 |
+| C | 2 | logit → gbm | 49.6% → 50.5% | 0.569 → 0.602 | 55.2% → 51.8% | 645 → 606 | [0.530, 0.607] | [0.563, 0.641] | 0.553 → 0.546 |
+| A | 5 | logit → gbm | 25.1% → 25.9% | 0.690 → 0.648 | 30.8% → 17.6% | 600 → 344 | [0.652, 0.726] | [0.596, 0.697] | 0.618 → 0.640 |
+| B | 5 | gbm → logit | 33.6% → 42.3% | 0.693 → 0.675 | 36.3% → 50.6% | 707 → 986 | [0.658, 0.726] | [0.646, 0.704] | 0.662 → 0.642 |
+| C | 5 | gbm → logit | 48.5% → 68.5% | 0.597 → 0.591 | 54.8% → 73.6% | 616 → 827 | [0.558, 0.635] | [0.557, 0.624] | 0.552 → 0.545 |
+
+Decision rule, fixed before the run: ship v3 only if (a) mean test_acc over the 6 rows beats v2fixed, (b) fold C
+test_acc >= v2fixed at both h, and (c) fold C test_n >= 100 at both h (a row with no model counts as a loss).
+(a) **fail**: 0.6405 vs 0.6438. (b) **fail**: C2 0.602 >= 0.569 passes, C5 0.591 < 0.597 fails. (c) pass: 606 and 827.
+**Decision: not shipped.** The v3 code was removed; the two bug fixes stay. v3 mostly widened coverage (test_n up in
+4 of 6 rows; C2 and A5 went down). test_acc is up at h=2 in all folds (A2, B2, C2) and down at h=5 in all folds
+(A5, B5, C5). Live still runs the v2 bundle (`volcast-v2`, thresholds picked before the
+purge fix, not retrained). Note that with the purge, v2's fold C h=2 CI no longer clears the rule's
+(0.569 [0.530, 0.607] vs 0.553 [0.515, 0.591]); the "first row where the CI clears" claim above is pre-purge.
+
+The purge also changed v2's own selection: comparing the live report (`data/volcast_report.json`, pre-purge) with
+`v2fixed`, the logit/gbm pick flipped in 5 of 6 rows (A2, B2, C2, A5, B5). Fold C h=2 now picks logit @0.062 (test
+0.569, n=645) vs the live bundle's gbm @0.057 (pre-purge test 0.625, n=523); the C5 threshold is 0.072 vs live 0.082.
+Rerunning `python -m nlp_module.volcast train` will therefore change the live model. Five flips in six rows put the
+logit/gbm pick at noise level.
+
 **Limitations**
-- Live bars come from SSI, in VND /1000 and **not dividend-adjusted**. On ex-dividend days this produces a spurious
-  return, which feeds ret1, vol10 and the other rolling features.
+- Live bars come from SSI, in VND /1000 and **not dividend-adjusted**. On live ex-dates whose raw move exceeds 7.2%,
+  ret1 (and so vol10, vol20, mret1) is computed from the SSI ref price. ret5, ret20, ma20 and mret5 still span the
+  unadjusted jump, and cash dividends under the band pass through unchanged.
 - 2026-10-22 and 2026-10-23 are missing from both sources, so rolling windows span that gap for ~20 sessions.
 - SSI `volume` is normal-matched volume and may exclude put-through trades. This biases `vz` after the seam.
 - Text and HOSE earnings-filing features are not used (no gain). BCTC values are annual and lag up to ~15 months.
 - `data/bctc.parquet` must exist (README); train and predict fail without it rather than silently impute.
+- The v1 → v2 table and `data/volcast_report.json` were computed before validation was purged of the h sessions
+  before the test start (~h×15 rows per fold); the purged v2 numbers are the v2fixed column of the v3 trial table.
+  The walk_forward text/rank sections of the report also use `walk_forward._split` and are pre-purge too.
 
 **How to run**
 ```
 python -m nlp_module.volcast train     # writes data/models/volcast.joblib + data/volcast_report.json
 python -m nlp_module.volcast predict   # writes vol_forecast; cron runs it on weekdays 15:00-16:00 via scripts/live_update.sh
 ```
+
+## Baseline v2 (2026-10-29): not shipped, v1 stays live
+
+**Selection on dev validation only** (`cli select-baseline`, `data/baseline_v2_selection.txt`): train first 80% of the
+1,324 dev labels by `published_at` (1,059), validate on the last 20% (265, from 2025-09-17, 5 negative). Grid: features
+v1/v2 x class weights balanced/sqrt x C 0.3/1/3/10, prior fixed at 1.
+
+| Config | val macro-F1 | recall pos / neu / neg |
+|---|---|---|
+| v1 setup (features v1, balanced, C=1) | 0.650 | 0.62 / 0.86 / 0.60 |
+| best features=v2 (sqrt, C=10) | 0.701 | 0.58 / 0.94 / 0.60 |
+| **chosen: features v1, sqrt, C=3** | **0.712** | 0.59 / 0.91 / 0.60 |
+| chosen + prior (pos, neu, neg) = (1.75, 1, 1) | 0.725 (in-sample: prior fit on this val) | 0.68 / 0.84 / 0.60 |
+
+Negative recall is 3/5 in every row, so the grid only moves pos/neu. Bundles: `data/models/baseline-v2.joblib`
+(`baseline-tfidf-lr-v2`, all dev), twin `data/models/baseline-v2-cal.joblib` (first 80%).
+
+**Human `eval` stream, scored once** (`cli eval --stream eval`, `data/baseline_v2_eval.txt`; n = 240: 58 / 178 / 4):
+
+| Model | macro-F1 [95% CI] | F1 pos / neu / neg | recall pos / neu / neg | neg correct |
+|---|---|---|---|---|
+| baseline-tfidf-lr-v1 | **0.608** [0.443, 0.723] | 0.50 / 0.82 / 0.50 | 0.50 / 0.81 / 0.75 | 3 / 4 |
+| baseline-tfidf-lr-v2 | 0.568 [0.421, 0.733] | 0.54 / 0.83 / 0.33 | 0.60 / 0.80 / 0.25 | 1 / 4 |
+
+CI = `evaluate.bootstrap_macro_f1`, 2,000 row resamples, seed 0. v1 recomputed with this code: same point estimate as
+the table above; the CI differs in the third decimal from the earlier bootstrap's draws.
+
+**Decision rule, fixed before scoring:** ship v2 only if (a) macro-F1 v2 >= v1, (b) positive recall v2 > v1, and
+(c) eval negatives predicted correctly by v2 >= v1.
+- (a) 0.568 >= 0.608: **fail**
+- (b) 0.603 > 0.500: pass (35 vs 29 of 58; v2 also calls 35 neutrals positive, vs 29)
+- (c) 1 >= 3: **fail**
+
+**Decision: keep v1.** The live model (`scripts/live_update.sh`, threshold 0.888) is unchanged, as are corpus results and snapshots. The
+macro-F1 drop is the negative column (2 of 4 samples) and sits inside overlapping CIs; the dev-val gain (+0.06) did not
+transfer to human labels. No setting was changed after scoring.
+
+**Linker rules, measured on dev before eval** (`evaluate.link_changes`, `data/link_check.txt`; keep a rule only if it
+changes more dev `skipped` samples than labeled ones):
+
+| Rule | dev changed: skipped | dev changed: labeled (pos / neu / neg) | Decision | eval changed, recorded only: skipped vs labeled |
+|---|---|---|---|---|
+| landmark (place name, not the company) | 0 | 3 (2 / 1 / 0) | removed | 1 dropped vs 0 |
+| bank fraud notice -> `ambiguous` | 12 | 61 (1 / 58 / 2) | removed | 17 vs 1 (neutral) |
+
+The fraud rule points opposite ways on the two streams: dev's silver labels (Claude) call bank-fraud notices `neutral`,
+the human eval labels call them `skip`. The decision used dev only and stands; the disagreement is a labeling-guideline
+question, not settled here. The linker is unchanged from before this round.
+
+**Passage format v1** (`passages.INPUT_FORMAT_VERSION = "v1"`): title-only links now take the article's lead
+sentence(s) instead of the title alone (1,763 v1 results had `sentence_ids='[]'`). Existing annotation samples keep the
+text they were labeled on. Because v1 was kept and the corpus not re-scored, this applies only to articles processed
+from the cutover on, for both v1 and PhoBERT: their history mixes the two passage formats. The linker did not change,
+so linking is consistent across the seam.
+
+Cutover (UTC, `article_company_result.processed_at`, read-only query on `data/nlp.db`): the last v0-format rows were
+written at 2026-10-29T04:00:45Z (baseline v1) and 04:00:52Z (phobert-phobert-v1); `passages.py` was changed at
+05:17Z (12:17 +07); the first v1-format rows were written at 05:30:27Z and 05:30:35Z. No rows exist in between, so
+`processed_at <= 2026-10-29T04:00:52Z` is v0 and `>= 2026-10-29T05:30:27Z` is v1. Across the seam: title-only rows
+after the cutover are no longer findable via `sentence_ids='[]'` (they carry the lead sentence ids; `difficult=1`
+remains), and their entropy / `uncertain` / `uncertain_ratio` are not comparable with earlier rows, because the
+0.888 / 0.571 abstain thresholds were chosen on v0 passages.
+
+## News intensity/surprise features (news3, 2026-10-29)
+Six features added to `trial_forecast.NEWS3`, measured with `--news3` (full tables: `data/news3_report.txt`). All use
+only results available at the 15:00 close (`published_at + BACKTEST_DELAY` <= close t).
+
+| feature | definition | missing -> imputed |
+|---|---|---|
+| `sentiment_std` | population std of (p_pos - p_neg) over non-uncertain results in the 72h window | None (also when only one non-uncertain result exists) -> 0.0 |
+| `hours_since_last_news` | hours since the newest available article (any age) | None (never had news) -> **720**; values > 720 capped at 720 |
+| `sentiment_abs_max` | max abs(p_pos - p_neg) over non-uncertain results in the 72h window | None -> 0.0 |
+| `sentiment_shock_24h` | abs(`sentiment_mean_24h`) | None -> 0.0 |
+| `sentiment_decay` | mean of (p_pos - p_neg) weighted 0.5^(age/24h) over non-uncertain results in the 72h window | None -> 0.0 |
+| `news_surprise` | rank(`news_count_24h`) * (1 - rank(`vol10`)) within each date (lots of news on a calm stock); computed on raw counts before `rank_cs` | NaN where vol10 is NaN -> 0.0 |
+
+Imputation: no news is never read as 0 = "just now" (hence 720 for the age); for the others 0.0 is paired with
+`has_news` / `uncertain_ratio`, which mark the imputed rows. `sentiment_std`, `hours_since_last_news` were already in
+`contract.build_snapshot` but unused by `TEXT`.
+
+**Conclusion rule, fixed before running, per target** (`walk_forward --skip-nlp --news3 --target <t>`): news3 adds value
+only if (i) validation picks a set containing news3 in >= 3 of the 6 fold x h cells, and (ii) mean test AUC of the
+picked config >= mean test AUC of price-only + 0.005. Single split is reference only. No setting changed after scoring.
+
+Single split (`trial_forecast --news3`, test from 2025-09-17, n_test 2,710 / 2,680; diff = AUC(variant) - AUC(price)):
+
+| target | h | AUC price | price+news3 | diff [95% CI] | price+text+news3 | diff [95% CI] |
+|---|---|---|---|---|---|---|
+| absmove | 2 | 0.573 | 0.576 | +0.003 [-0.008, +0.012] | 0.575 | +0.002 [-0.009, +0.013] |
+| absmove | 5 | 0.581 | 0.580 | -0.002 [-0.014, +0.009] | 0.587 | +0.006 [-0.005, +0.017] |
+| excess | 2 | 0.532 | 0.513 | **-0.019** [-0.036, -0.001] | 0.509 | **-0.023** [-0.045, -0.001] |
+| excess | 5 | 0.533 | 0.524 | -0.009 [-0.019, +0.003] | 0.513 | **-0.020** [-0.037, -0.002] |
+
+Walk-forward (`--skip-nlp --news3`), test AUC, fold x h; "picked" = set chosen on validation:
+
+| target | fold, h | price | news3 alone | picked set | picked test |
+|---|---|---|---|---|---|
+| absmove | A, 2 | 0.528 | 0.529 | price | 0.528 |
+| absmove | A, 5 | 0.572 | 0.595 | text+news3/counts | 0.594 |
+| absmove | B, 2 | 0.575 | 0.571 | text+news3/counts | 0.583 |
+| absmove | B, 5 | 0.607 | 0.592 | text+news3/counts | 0.611 |
+| absmove | C, 2 | 0.533 | 0.536 | text+news3/all | 0.540 |
+| absmove | C, 5 | 0.504 | 0.499 | text+news3/all | 0.512 |
+| excess | A, 2 | 0.474 | 0.487 | text/none | 0.484 |
+| excess | A, 5 | 0.482 | 0.486 | text/none | 0.506 |
+| excess | B, 2 | 0.518 | 0.521 | price | 0.518 |
+| excess | B, 5 | 0.531 | 0.515 | price | 0.531 |
+| excess | C, 2 | 0.523 | 0.523 | price | 0.523 |
+| excess | C, 5 | 0.535 | 0.521 | price | 0.535 |
+
+Criteria:
+- **absmove:** (i) news3 in the picked set in 5 of 6 cells: pass. (ii) mean picked test 0.5613 vs price 0.5532 =
+  **+0.0082**: pass. => **news3 adds value** by the rule.
+- **excess:** (i) news3 picked in 0 of 6 cells: **fail** (picks are text/none twice, price four times). (ii) 0.5162 vs
+  0.5105 = +0.0057 passes numerically, but the lift comes from the two text/none picks, not news3. => **no added value.**
+
+**Reading:** the absmove pass is small and should not be over-read. It passes by the rule, but the rule's baseline is
+price-only, so the already-known text effect counts toward the pass: best text-only averages 0.5575 (+0.0043 over
+price 0.5532). News3 over the best text-only set adds +0.0038 (0.5613 vs 0.5575), under the 0.005 margin; news3 alone
+averages 0.5537 (+0.0005 over price). Criterion (i) counted picks of text+news3 sets (the picked set is always
+text+news3, never news3 alone), so it did not isolate news3. Single-split absmove diffs are inside their CIs
+(all four CIs include 0), the fold C picks gain only +0.007 / +0.008 on n = 760 / 730, and the picked set is the best of
+many validation candidates. Treat as a lead to re-check on newer data, not a shipped feature (volcast live is
+unchanged; no text feature goes into live from this plan). News3 never helps excess: validation picks news3 in 0 of 6 cells, and the single-split news3 variants are all below
+price-only (3 of the 4 significantly: CI excludes 0, price+news3 at h=2 and price+text+news3 at h=2 and h=5).
+
+**Univariate AUC on the fold C test window** (sessions 2026-07-01..2026-10-14, n = 730 with a T+5 label, base rate
+0.500, label T+5 `absmove`, phobert-foldC results; raw feature as score, no sign flip). This is a *different window*
+from the Magnitude-target table (trial split test, from 2025-09-17: vol10 0.582, news_count_72h 0.558,
+sentiment_mean_24h 0.534); the same three features on the fold C window are given for comparison:
+
+| feature | AUC, fold C test, T+5 absmove |
+|---|---|
+| vol10 | 0.515 |
+| news_count_72h | 0.552 |
+| sentiment_mean_24h | 0.536 |
+| sentiment_std | 0.518 |
+| hours_since_last_news | 0.466 (1 - AUC = 0.534: more recent news, larger move) |
+| sentiment_abs_max | 0.521 |
+| sentiment_shock_24h | 0.538 |
+| sentiment_decay | 0.520 |
+| news_surprise | 0.507 |
+
+On this window the strongest news3 features (`sentiment_shock_24h` 0.538, `hours_since_last_news` 0.534 inverted) sit
+at the level of `sentiment_mean_24h`, below `news_count_72h`; vol10 is weak here (0.515 vs 0.582 on the trial split).
+
+## Text->Return regression (Ridge, 2026-10-29)
+A direct text-to-return model, measured per walk-forward fold (`python -m nlp_module.text_return --target absmove|excess`,
+`nlp_module/text_return.py`; full tables: `data/text_return_report.txt`). Runtime ~10 s per target.
+
+**Design.**
+- Input: 11,372 direct articles (`baseline-tfidf-lr-v1`, `relation='direct'`, `is_representative=1`, `published_at`
+  not NULL, the 10 priced tickers), read from `data/nlp.db` read-only. Text = `"[{symbol}] {passage_text}"`.
+- Session: first trading date whose 08:00 UTC close is at/after `published_at + 30 min`; after-close, weekend and
+  holiday articles roll to the next session in the price calendar.
+- Ridge label: r = close[t+h]/close[t] - 1 of the article's ticker; `excess` y = r - mean r of that day's tickers,
+  `absmove` y = |r| - median |r|. Articles without a t+h price are dropped.
+- Ridge: `TfidfVectorizer(ngram_range=(1, 2), min_df=3, sublinear_tf=True)` + `Ridge(alpha=10.0)`, fit per fold x h
+  on articles with session in [train_start, val_start) AND session position + h < position of the first session >=
+  val_start (no label window reaches validation).
+- Daily feature: `ridge_24h` = mean Ridge prediction of the ticker's articles with `published_at + 30 min` in
+  (cutoff - 24h, cutoff], cutoff = date 08:00 UTC; `has_ridge` 0/1; no article => `ridge_24h` 0.
+- Forecaster: `StandardScaler + LogisticRegression(C=1.0)` **fit on the validation window only** (where every Ridge
+  prediction is out-of-sample: validation/test articles all have sessions >= val_start), scored once on test. Rows and
+  binary labels from `trial_forecast.add_targets`, split by `walk_forward._split` (h-session purge at each boundary).
+  Price-only AUCs therefore differ from the walk-forward tables above (those fit on train+val with C picked on val).
+- Univariate AUC = raw `ridge_24h` as score on test rows with `has_ridge = 1` (no sign flip).
+
+**Conclusion rule, fixed before running, per target:** Text->Return adds value only if diff = AUC(price+ridge) -
+AUC(price) > 0 in >= 2 of 3 folds at **both** h=2 and h=5, **and** the mean diff over the 6 cells > 0.005.
+
+| target | fold | h | n train articles | n test | AUC price | AUC price+ridge | diff | AUC ridge_24h (n) |
+|---|---|---|---|---|---|---|---|---|
+| absmove | A | 2 | 3,079 | 1,300 | 0.5347 | 0.5161 | -0.0185 | 0.5315 (551) |
+| absmove | B | 2 | 5,113 | 1,300 | 0.5749 | 0.5712 | -0.0037 | 0.5646 (684) |
+| absmove | C | 2 | 8,115 | 760 | 0.5290 | 0.5450 | +0.0159 | 0.5635 (449) |
+| absmove | A | 5 | 3,058 | 1,300 | 0.5802 | 0.5880 | +0.0079 | 0.5604 (551) |
+| absmove | B | 5 | 5,096 | 1,300 | 0.6088 | 0.6055 | -0.0033 | 0.5482 (684) |
+| absmove | C | 5 | 8,061 | 730 | 0.5001 | 0.5447 | +0.0447 | 0.6116 (429) |
+| excess | A | 2 | 3,079 | 1,300 | 0.4444 | 0.4557 | +0.0112 | 0.5289 (551) |
+| excess | B | 2 | 5,113 | 1,300 | 0.5264 | 0.5242 | -0.0022 | 0.4834 (684) |
+| excess | C | 2 | 8,115 | 760 | 0.5153 | 0.5428 | +0.0275 | 0.5137 (449) |
+| excess | A | 5 | 3,058 | 1,300 | 0.4519 | 0.4424 | -0.0095 | 0.5323 (551) |
+| excess | B | 5 | 5,096 | 1,300 | 0.5175 | 0.5418 | +0.0243 | 0.4089 (684) |
+| excess | C | 5 | 8,061 | 730 | 0.5439 | 0.5400 | -0.0040 | 0.4827 (429) |
+
+**Conclusion (by the rule):**
+- **absmove:** diff > 0 in 1/3 folds at h=2 (fail), 2/3 at h=5; mean diff +0.0072 (> 0.005). Fails the per-h count
+  at h=2 => **no added value.**
+- **excess:** diff > 0 in 2/3 folds at h=2, 1/3 at h=5 (fail); mean diff +0.0079. Fails at h=5 => **no added value.**
+
+**Reading:** for absmove the raw `ridge_24h` score has point estimates of 0.531-0.612 in the 6 cells (news rows only,
+n 429-684), with no CI; the lower values are within noise of 0.5. On top of price features in a validation-only
+logistic fit it helps in 3 of 6 cells; the mean lift is carried by fold C (+0.016, +0.045, where price-only is weak at
+0.529 / 0.500). For excess the univariate AUC straddles 0.5 (0.409-0.532): no stable directional text signal, same as
+earlier excess results. Nothing goes into volcast live.
+
+The protocol is low power: the forecaster is fit on about 6 months of validation with a fixed C=1.0, so "no added
+value" means "not shown under this protocol", not "shown absent". The 24h feature window (cutoff - 24h, cutoff] also
+drops weekend and holiday articles that Ridge training keeps (Monday's window misses Friday-evening and Saturday
+articles); that information loss pushes the result toward the null.
+
+Only 10 tickers have prices (adding BID, CTG, HDB, VHM, NVL price files is the user's action; see
+`python -m nlp_module.trial_forecast --build-prices`).

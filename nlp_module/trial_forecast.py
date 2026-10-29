@@ -14,9 +14,11 @@ from sklearn.preprocessing import StandardScaler
 from .contract import build_snapshot
 
 CLOSE_UTC = time(8, 0)   # HOSE close 15:00 Asia/Ho_Chi_Minh = 08:00 UTC; forecast_cutoff = close of day t
+UNIVERSE = "ACB BID CTG FPT HDB HPG MSN MWG NVL STB TCB VCB VHM VIC VPB".split()   # the NLP forecasting universe; app.py keeps its own copy
 TEXT = ["has_news", "news_count_24h", "news_count_72h", "sentiment_mean", "sentiment_mean_24h", "uncertain_ratio", "direct_news_ratio", "difficult_ratio"]
 COUNTS = ["news_count_24h", "news_count_72h"]          # absolute levels: drift with corpus growth
 SENT = ["sentiment_mean", "sentiment_mean_24h"]
+NEWS3 = ["sentiment_std", "hours_since_last_news", "sentiment_abs_max", "sentiment_shock_24h", "sentiment_decay", "news_surprise"]
 
 
 def load_prices(path):
@@ -25,6 +27,24 @@ def load_prices(path):
     df["ret1"], df["ret5"] = g.pct_change(1), g.pct_change(5)
     df["vol10"] = df.groupby("symbol")["ret1"].transform(lambda s: s.rolling(10).std())
     return df
+
+
+def prices_from_stock(stock_dir, symbols):
+    from .volcast import load_history   # volcast imports this module at top level
+    h = load_history(stock_dir)
+    h = h[h.symbol.isin(symbols)].assign(date=lambda x: x.date.dt.strftime("%Y-%m-%d"))
+    return h[["date", "symbol", "close"]].sort_values(["symbol", "date"]).reset_index(drop=True)
+
+
+def check_prices(df):
+    from .volcast import RET_BAND
+    df = df.sort_values(["symbol", "date"])
+    days = df.groupby("symbol")["date"].agg(frozenset)
+    move = df.groupby("symbol")["close"].pct_change().abs()
+    return {"n_symbols": int(df.symbol.nunique()), "same_calendar": days.nunique() <= 1,
+            "n_nan": int(df.close.isna().sum()), "n_big_moves": int((move > RET_BAND).sum()),
+            # volcast.load_history does not dedupe: a repeated (symbol, date) would silently shift add_targets
+            "n_dup": int(df.duplicated(["symbol", "date"], keep=False).sum())}
 
 
 def add_targets(df, h, target="direction"):
@@ -54,13 +74,25 @@ def add_text(df, results, mode, model_version):
     for r in df.itertuples():
         cut = datetime.combine(r.date.date(), CLOSE_UTC, tzinfo=timezone.utc)
         f = build_snapshot(results, r.symbol, cut, mode, model_version).features
-        rows.append({k: f[k] for k in TEXT})
+        rows.append({k: f[k] for k in TEXT + NEWS3[:5]})
     t = pd.DataFrame(rows, index=df.index)
     t["has_news"] = t["has_news"].astype(float)
     # imputation policy (explicit): no news => sentiment 0 AND has_news=0, never read as a neutral article.
     # Since abstention went live, sentiment_mean is also missing when the whole window abstained (10.7% of news
     # rows): those get sentiment 0 WITH has_news=1, and `uncertain_ratio` = 1 is what marks them as imputed.
+    # NEWS3 keys: hours_since_last_news None (symbol never had news) => 720, and anything larger is capped at 720, so
+    # "no news" reads as long ago, never as 0 = just now; the other NEWS3 keys None => 0.0, with has_news/uncertain_ratio
+    # marking the imputed rows as above.
+    t["hours_since_last_news"] = t["hours_since_last_news"].fillna(720.0).clip(upper=720.0)
     return pd.concat([df, t.fillna(0.0)], axis=1)
+
+
+def add_news_surprise(df):
+    """news_surprise = rank(news_count_24h) * (1 - rank(vol10)) within each date: lots of news on a calm stock.
+    Ranks the RAW values, so call it before rank_cs overwrites news_count_24h."""
+    g = df.groupby("date")
+    s = g["news_count_24h"].rank(pct=True) * (1 - g["vol10"].rank(pct=True))
+    return df.assign(news_surprise=s.where(df.vol10.notna()))
 
 
 def rank_cs(df, cols):
@@ -132,7 +164,21 @@ def main(argv=None):
                     help="add HOSE earnings-change features (fundamentals.FUND): price+fund, price+text+fund")
     ap.add_argument("--bctc", action="store_true",
                     help="add annual audited-statement features (fundamentals.BCTC): price+bctc, price+text+bctc")
+    ap.add_argument("--news3", action="store_true",
+                    help="add v3 news features (NEWS3): price+news3, price+text+news3")
+    ap.add_argument("--build-prices", action="store_true", help="write --out from --stock-dir, report, and exit")
+    ap.add_argument("--stock-dir", default="data/stock")
+    ap.add_argument("--out", default="data/prices.csv")
+    ap.add_argument("--symbols", nargs="*", default=UNIVERSE, help="tickers to build (default: UNIVERSE)")
     a = ap.parse_args(argv)
+
+    if a.build_prices:
+        syms = set(a.symbols)
+        px = prices_from_stock(a.stock_dir, syms)
+        px.to_csv(a.out, index=False)
+        print(check_prices(px))
+        print("symbols without a price file:", sorted(syms - set(px.symbol)))
+        return px
 
     df = load_prices(a.prices)
     for h in (2, 5):
@@ -148,7 +194,9 @@ def main(argv=None):
     if a.bctc:
         d = fundamentals.add_bctc(d, fundamentals.bctc_features())
         print("has_bctc share: all %.3f, test %.3f" % (d.has_bctc.mean(), d[d.date >= a.test_start].has_bctc.mean()))
-    extras = {k: v for k, v in (("fund", fundamentals.FUND), ("bctc", fundamentals.BCTC)) if getattr(a, k)}
+    extras = {k: v for k, v in (("fund", fundamentals.FUND), ("bctc", fundamentals.BCTC), ("news3", NEWS3)) if getattr(a, k)}
+    if a.news3:
+        d = add_news_surprise(d)   # on raw counts, before rank_cs
     cols = {"none": [], "counts": COUNTS, "all": COUNTS + SENT}[a.rank]
     if cols:
         print("drift (mean before / from test_start), raw:", drift(d, cols, a.test_start))

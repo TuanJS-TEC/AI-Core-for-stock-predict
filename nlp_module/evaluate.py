@@ -1,3 +1,5 @@
+from collections import Counter
+
 import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
 
@@ -9,6 +11,18 @@ def metrics(labels, probs):
     return {"n": len(labels), "macro_f1": f1_score(labels, pred, labels=LABELS, average="macro", zero_division=0),
             "report": classification_report(labels, pred, labels=LABELS, zero_division=0, output_dict=True),
             "confusion[pos,neu,neg]": confusion_matrix(labels, pred, labels=LABELS).tolist()}
+
+
+def bootstrap_macro_f1(labels, probs, n=2000, seed=0):
+    """(2.5, 97.5) percentiles of macro-F1 over `n` row resamples with replacement."""
+    y = np.array(labels)
+    pred = np.array([LABELS[int(np.argmax(p))] for p in probs])
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(y), size=(n, len(y)))
+    # same macro-F1 over all 3 LABELS as metrics(): a class absent from a resample's truth and predictions scores 0
+    f = [f1_score(y[i], pred[i], labels=LABELS, average="macro", zero_division=0) for i in idx]
+    lo, hi = np.percentile(f, [2.5, 97.5])
+    return float(lo), float(hi)
 
 
 def abstention_curve(labels, probs):
@@ -26,3 +40,29 @@ def choose_abstain(labels, probs, min_acc):
     """Largest coverage whose accuracy on kept items >= min_acc; None if the target is unreachable."""
     ok = [(t, cov) for t, cov, acc in abstention_curve(labels, probs) if acc >= min_acc]
     return max(ok, key=lambda x: x[1])[0] if ok else None
+
+
+def link_changes(c, old, new, stream):
+    """Counter[(group, change)] over a stream's annotation samples, re-linking each with `old` and `new` linkers.
+    group = sentiment_label if labeled else annotation_status; change = same | dropped | demoted | other."""
+    out = Counter()
+
+    def pick(lk, eid, title, text, pub):
+        return next((l for l in lk.link(title or "", text, pub or "") if l.entity_id == eid), None)
+
+    for eid, label, status, title, text, pub in c.execute(
+            "SELECT s.target_entity_id, s.sentiment_label, s.annotation_status, v.title, v.normalized_text, v.published_at"
+            " FROM annotation_sample s JOIN document_version v USING (document_version_id) WHERE s.stream=?", (stream,)):
+        o, n = pick(old, eid, title, text, pub), pick(new, eid, title, text, pub)
+        if o is None and n is None:
+            ch = "same"                       # never linked under either: nothing changed
+        elif n is None:
+            ch = "dropped"
+        elif o is None:
+            ch = "other"
+        elif n.relation == o.relation:
+            ch = "same"
+        else:
+            ch = "demoted" if o.relation == "direct" else "other"
+        out[(label or status, ch)] += 1
+    return out

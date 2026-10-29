@@ -5,7 +5,7 @@ from datetime import date
 from nlp_module import dedup, storage
 from nlp_module.connectors import cafef, vietstock
 from nlp_module.connectors.base import ParsedDoc, sitemap_entries, to_utc_iso
-from nlp_module.entities import Linker, load_aliases
+from nlp_module.entities import Link, Linker, Mention, load_aliases
 from nlp_module.passages import select_passage
 from nlp_module.text import fold, normalize, split_sentences
 
@@ -56,6 +56,35 @@ class PassageTest(unittest.TestCase):
         self.assertEqual(out["VCB"]["sentence_ids"], [0])
         self.assertEqual(out["BID"]["sentence_ids"], [1])
         self.assertFalse(out["VCB"]["difficult"])
+
+    LEAD = [(0, 0, 60, "Tập đoàn khởi công dự án 23.500 tỷ đồng tại Hà Tĩnh hôm nay."),
+            (1, 61, 120, "Dự án dự kiến hoàn thành năm 2028 với 5.000 căn hộ.")]
+
+    @staticmethod
+    def _link(in_title, mentions=()):
+        return Link("VIC", "VIC", "direct", 0.5, in_title, list(mentions))
+
+    def test_title_only_link_takes_lead_sentence(self):
+        p = select_passage("Vingroup khởi công dự án lớn", self.LEAD, self._link(True), [])
+        self.assertEqual(p["sentence_ids"], [0])
+        self.assertIs(p["difficult"], True)
+        self.assertEqual(p["passage_text"], "Vingroup khởi công dự án lớn. " + self.LEAD[0][3].rstrip("."))
+
+    def test_short_lead_takes_two_sentences(self):
+        short = [(0, 0, 10, "Tin nóng."), self.LEAD[1]]
+        self.assertEqual(select_passage("Vingroup khởi công", short, self._link(True), [])["sentence_ids"], [0, 1])
+
+    def test_single_sentence_short_lead_has_no_second_id(self):
+        p = select_passage("Vingroup", [(0, 0, 9, "Tin nóng.")], self._link(True), [])
+        self.assertEqual(p["sentence_ids"], [0])
+
+    def test_lead_mentioning_other_company_stays_difficult(self):
+        other = [Mention("VHM", 5, 13, "Vinhomes")]
+        self.assertIs(select_passage("Vingroup khởi công", self.LEAD, self._link(True), other)["difficult"], True)
+
+    def test_no_title_no_body_mention_unchanged_and_empty_body_is_title_only(self):
+        self.assertEqual(select_passage("x", self.LEAD, self._link(False), [])["sentence_ids"], [])
+        self.assertEqual(select_passage("Vingroup", [], self._link(True), [])["passage_text"], "Vingroup")
 
 
 class StorageDedupTest(unittest.TestCase):
@@ -193,3 +222,32 @@ class HoseFilingTest(unittest.TestCase):
         r = c.execute("SELECT symbol, relation, difficult, passage_text FROM article_company_result").fetchone()
         self.assertEqual((r[0], r[1], r[2]), ("FPT", "direct", 0))
         self.assertIn("doanh thu thuần", r[3])   # the whole narrative, though it never names FPT
+
+
+class LinkChangesTest(unittest.TestCase):
+    ROWS = [{"entity_id": "VHM", "symbol": "VHM", "legal_name": "Công ty Cổ phần Vinhomes", "alias": a,
+             "alias_type": t, "valid_from": "", "valid_to": ""} for a, t in (("VHM", "symbol"), ("Vinhomes", "brand"))]
+
+    def test_link_changes_counts_dropped_sample(self):
+        from collections import Counter
+        from nlp_module.evaluate import link_changes
+        c = storage.connect(":memory:")
+        v, _ = storage.ingest(c, ParsedDoc("t", "https://a.vn/x", "news", "BIDV thu giữ biệt thự tại Vinhomes Riverside",
+                                           "Ngân hàng xử lý tài sản bảo đảm.", "2026-01-01T00:00:00Z", None, b"<html/>"),
+                              tempfile.mkdtemp())
+        c.execute("INSERT INTO annotation_sample (sample_id, document_version_id, target_entity_id, passage_text,"
+                  " sentence_ids, stream, annotation_status) VALUES ('s1', ?, 'VHM', 'x', '0', 'dev', 'skipped')", (v,))
+        self.assertEqual(link_changes(c, Linker(self.ROWS), Linker(self.ROWS[:1]), "dev"),
+                         Counter({("skipped", "dropped"): 1}))
+
+    def test_link_changes_unlinked_target_is_same(self):
+        from collections import Counter
+        from nlp_module.evaluate import link_changes
+        c = storage.connect(":memory:")
+        v, _ = storage.ingest(c, ParsedDoc("t", "https://a.vn/y", "news", "Thị trường đi ngang",
+                                           "Không có doanh nghiệp nào được nhắc.", "2026-01-01T00:00:00Z", None, b"<html/>"),
+                              tempfile.mkdtemp())
+        c.execute("INSERT INTO annotation_sample (sample_id, document_version_id, target_entity_id, passage_text,"
+                  " sentence_ids, stream, sentiment_label, annotation_status) VALUES ('s1', ?, 'VHM', 'x', '0', 'dev', 'neutral', 'labeled')", (v,))
+        self.assertEqual(link_changes(c, Linker(self.ROWS), Linker(self.ROWS[:1]), "dev"),
+                         Counter({("neutral", "same"): 1}))

@@ -18,7 +18,7 @@ def test_fold_windows_are_purged_and_disjoint():
     i_val = list(dates).index(pd.Timestamp("2024-01-01"))
     i_test = list(dates).index(pd.Timestamp("2024-07-01"))
     assert n_tr == 2 * (i_val - h)              # last h sessions before validation dropped
-    assert n_va == 2 * (i_test - i_val)
+    assert n_va == 2 * (i_test - h - i_val)     # last h sessions before test dropped from validation too
     assert n_te == 2 * (len(dates) - i_test)
     assert pick in res and pick in ("price", "text/none", "text/counts", "text/all")
     assert set(res) == {"price", "text/none", "text/counts", "text/all"}   # rank mode is part of the val search

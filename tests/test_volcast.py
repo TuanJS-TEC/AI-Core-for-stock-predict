@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from nlp_module import fundamentals, storage, volcast
 
@@ -37,6 +38,15 @@ def test_live_bars_use_only_post_close_reading():
     out = volcast.live_bars(c)
     assert out.symbol.tolist() == ["FPT"]
     assert out.close.iloc[0] == 55.8 and out.date.iloc[0] == pd.Timestamp("2026-10-28")
+
+
+def test_live_bars_ref_is_converted_and_null_or_zero_is_nan():
+    c = storage.connect(":memory:")
+    q = "INSERT INTO market_quote (symbol, fetched_at, trading_date, ref_price, matched_price, highest, lowest, matched, source) VALUES (?,?,?,?,?,?,?,1,'t')"
+    for sym, ref in [("AAA", 55000), ("BBB", None), ("CCC", 0)]:
+        c.execute(q, (sym, "2026-10-28T08:05:00Z", "20261028", ref, 55800, 55900, 55700))
+    out = volcast.live_bars(c).set_index("symbol").ref
+    assert out["AAA"] == 55.0 and np.isnan(out["BBB"]) and np.isnan(out["CCC"])
 
 
 def test_bars_history_wins_and_empty_live_keeps_numeric(tmp_path):
@@ -162,3 +172,28 @@ def test_walk_rows_carry_rule_ci():
         assert "rule_ci_lo" in r and "rule_ci_hi" in r
         if r["model"]:
             assert r["rule_ci_lo"] <= r["rule_acc"] <= r["rule_ci_hi"]
+
+
+def test_dividend_seam_fixes_live_ret1_only():
+    df = _bars(30)
+    df["ref"] = np.nan
+    a = df.index[(df.symbol == "AAA")][-1]           # last AAA row = a live ex-dividend day
+    df.loc[a, "close"] = df.loc[a - 1, "close"] * 0.7 # raw close vs unadjusted prior: -30%
+    df.loc[a, "ref"] = df.loc[a, "close"] / 1.01      # exchange ref (adjusted prior close): +1% on the day
+    b = df.index[(df.symbol == "BBB")][-1]            # history row (ref NaN) with a real -30% move
+    df.loc[b, "close"] = df.loc[b - 1, "close"] * 0.7
+    out = volcast.add_features(df, NO_BCTC).set_index(["symbol", "date"])
+    assert out.loc[("AAA", df.loc[a, "date"]), "ret1"] == pytest.approx(0.01)
+    assert out.loc[("BBB", df.loc[b, "date"]), "ret1"] == pytest.approx(-0.3)
+    aaa = out.loc["AAA"]                              # the fix must land before vol10 is computed
+    assert aaa.vol10.iloc[-1] == pytest.approx(aaa.ret1.iloc[-10:].std())
+
+
+def test_dividend_seam_ignores_missing_or_zero_ref():
+    df = _bars(30)
+    df["ref"] = np.nan
+    a = df.index[(df.symbol == "AAA")][-1]
+    df.loc[a, "close"] = df.loc[a - 1, "close"] * 0.7
+    df.loc[a, "ref"] = 0.0
+    out = volcast.add_features(df, NO_BCTC)
+    assert out[out.symbol == "AAA"].ret1.iloc[-1] == pytest.approx(-0.3)

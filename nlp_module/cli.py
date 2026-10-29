@@ -54,6 +54,7 @@ def main(argv=None):
     add("leak-check")
     p = add("train-baseline"); p.add_argument("--out", default="data/models/baseline.joblib"); p.add_argument("--version", default="baseline-tfidf-lr-v1")
     p.add_argument("--val-frac", type=float, default=0.0, help="hold out the last fraction by published_at (for calibration)")
+    add("select-baseline", help="choose the v2 baseline config + prior on dev validation, write both bundles")
     p = add("train-phobert"); p.add_argument("--out", default="data/models/phobert-v1"); p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--val-frac", type=float, default=0.2)
     p = add("abstain", help="choose the abstention entropy threshold on dev validation; --apply sets `uncertain`")
@@ -122,6 +123,44 @@ def main(argv=None):
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         train(X, y, a.version).save(a.out)
         print("trained on", len(X), "dev samples ->", a.out)
+    elif a.cmd == "select-baseline":
+        # overwrites data/models/baseline-v2*.joblib and data/baseline_v2_selection.txt (what the 2026-10-29 one-shot eval scored):
+        # a rerun gives a different model under the same version string
+        from itertools import product
+        from pathlib import Path
+        from .sentiment.baseline import fit_prior, train
+        from .sentiment.base import LABELS
+        X, y, rows_ = annotate.dataset(c, "dev")   # dev stream only; eval stream stays untouched
+        order = sorted(range(len(X)), key=lambda i: rows_[i]["published_at"])
+        k = int(len(X) * 0.8)
+        tr, va = order[:k], order[k:]
+        Xt, yt, Xv, yv = [X[i] for i in tr], [y[i] for i in tr], [X[i] for i in va], [y[i] for i in va]
+
+        def recalls(r):
+            return " ".join(f"{l[:3]}={r['report'][l]['recall']:.3f}" for l in LABELS)
+        rows, best = [], None
+        for f, w, C in product(("v1", "v2"), ("balanced", "sqrt"), (0.3, 1.0, 3.0, 10.0)):
+            r = evaluate.metrics(yv, train(Xt, yt, "sel", f, w, C).predict(Xv))
+            rows.append(f"features={f} weights={w} C={C}: val macro-F1 {r['macro_f1']:.4f}  recall {recalls(r)}")
+            print(rows[-1], flush=True)
+            if best is None or (r["macro_f1"], -C) > (best[0], -best[1][2]):   # tie -> smaller C
+                best = (r["macro_f1"], (f, w, C))
+        f, w, C = best[1]
+        twin = train(Xt, yt, "baseline-tfidf-lr-v2-cal", f, w, C)
+        probs = twin.predict(Xv)
+        prior = fit_prior(probs, yv)
+        before, after = evaluate.metrics(yv, probs), evaluate.metrics(yv, [tuple(p * q for p, q in zip(r, prior)) for r in probs])
+        twin.prior = prior
+        Path("data/models").mkdir(parents=True, exist_ok=True)
+        twin.save("data/models/baseline-v2-cal.joblib")
+        train(X, y, "baseline-tfidf-lr-v2", f, w, C, prior).save("data/models/baseline-v2.joblib")
+        out = [f"dev {len(X)} rows by published_at; train {len(tr)} / val {len(va)} (from {rows_[va[0]]['published_at'][:10]})",
+               "grid (train 80%, val 20%, prior 1):", *rows, "",
+               f"chosen: features={f} weights={w} C={C}  prior(pos,neu,neg)={prior}",
+               f"val before prior: macro-F1 {before['macro_f1']:.4f}  recall {recalls(before)}",
+               f"val after prior:  macro-F1 {after['macro_f1']:.4f}  recall {recalls(after)}"]
+        Path("data/baseline_v2_selection.txt").write_text("\n".join(out) + "\n")
+        print("\n".join(out[-3:]))
     elif a.cmd == "train-phobert":
         from .sentiment import phobert
         X, y, rows_ = annotate.dataset(c, "dev")
@@ -157,8 +196,13 @@ def main(argv=None):
     elif a.cmd == "eval":
         X, y, _ = annotate.dataset(c, a.stream)
         m = load_model(a.model)
-        r = evaluate.metrics(y, m.predict(X))
-        print(json.dumps({k: v for k, v in r.items() if k != "report"}, indent=1))
+        probs = m.predict(X)
+        r = evaluate.metrics(y, probs)
+        out = {k: v for k, v in r.items() if k != "report"}
+        out["macro_f1_ci95"] = evaluate.bootstrap_macro_f1(y, probs)
+        out["per_class"] = {l: {k: r["report"][l][k] for k in ("precision", "recall", "f1-score", "support")}
+                            for l in evaluate.LABELS}
+        print(json.dumps({"model": m.version, "stream": a.stream, **out}, indent=1))
     elif a.cmd == "quotes":
         from .connectors import ssi
         from .pipeline import sentiment_vs_price

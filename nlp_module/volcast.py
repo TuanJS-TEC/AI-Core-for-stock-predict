@@ -26,6 +26,7 @@ BUNDLE = "data/models/volcast.joblib"
 REPORT = "data/volcast_report.json"
 HORIZONS = (2, 5)
 COLS = ["date", "symbol", "close", "high", "low", "volume"]
+RET_BAND = 0.072   # exchange daily limit is 7%; a bigger live move means the previous row is not the exchange's reference (corporate action or calendar gap); if ref == previous close the fix changes nothing
 
 
 def load_history(stock_dir="data/stock"):
@@ -40,14 +41,15 @@ def load_history(stock_dir="data/stock"):
 def live_bars(c):
     """Last reading per (symbol, trading_date) taken after the 15:00 close: earlier readings are intraday, and a
     mid-session high/low/volume would understate the day's range."""
-    q = pd.read_sql("SELECT symbol, fetched_at, trading_date, matched_price, highest, lowest, volume "
+    q = pd.read_sql("SELECT symbol, fetched_at, trading_date, ref_price, matched_price, highest, lowest, volume "
                     "FROM market_quote WHERE matched = 1", c)
     q["date"] = pd.to_datetime(q["trading_date"], format="%Y%m%d")
     t = pd.to_datetime(q["fetched_at"], utc=True).dt.tz_localize(None)
     q = q[t >= q["date"] + pd.Timedelta(hours=CLOSE_UTC.hour)].assign(t=t)
     q = q.sort_values("t").drop_duplicates(["symbol", "date"], keep="last")  # last ROW: groupby.last() would splice earlier non-nulls over NULLs
-    q = q.assign(close=q.matched_price / 1000, high=q.highest / 1000, low=q.lowest / 1000)
-    return q[COLS].astype({"close": float, "high": float, "low": float, "volume": float})  # empty table reads as object
+    ref = pd.to_numeric(q.ref_price, errors="coerce") / 1000
+    q = q.assign(close=q.matched_price / 1000, high=q.highest / 1000, low=q.lowest / 1000, ref=ref.where(ref > 0))
+    return q[COLS + ["ref"]].astype({"close": float, "high": float, "low": float, "volume": float, "ref": float})  # empty table reads as object
 
 
 def bars(c, stock_dir="data/stock"):
@@ -56,8 +58,7 @@ def bars(c, stock_dir="data/stock"):
     # missing from both). add_features rolls over available rows, so ret*/vol*/ma20/vz windows span the missing sessions
     # for ~20 sessions after the seam. Upgrade: reindex to the exchange calendar and NaN windows that cross a gap.
     h, lv = load_history(stock_dir), live_bars(c)
-    # ponytail: dividend seam. Live SSI matched price is not dividend-adjusted while history is, so an ex-dividend day
-    # yields a spurious ret1. Upgrade: use SSI ref_price as the previous close when |ret1| exceeds the +-7% band.
+    # ponytail: fixes ret1 only; ret5/ret20/ma20 still span the unadjusted jump, and cash dividends under the 7.2% band pass through. Upgrade: back-adjust earlier closes by ref/prev_close on live ex-dates.
     lv = lv[lv.symbol.isin(h.symbol.unique())]   # tickers outside the history universe would skew mret*, the label median, predictions
     df = pd.concat([h, lv], ignore_index=True)
     df = df.drop_duplicates(["symbol", "date"], keep="first")
@@ -70,6 +71,9 @@ def add_features(df, bctc=None):
     df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
     g = df.groupby("symbol")
     df["ret1"], df["ret5"], df["ret20"] = g.close.pct_change(1), g.close.pct_change(5), g.close.pct_change(20)
+    if "ref" in df:   # live rows: the exchange ref price is the dividend-adjusted previous close
+        fix = (df.ref > 0) & (df.ret1.abs() > RET_BAND)
+        df.loc[fix, "ret1"] = df.close[fix] / df.ref[fix] - 1
     df["vol10"] = g.ret1.transform(lambda x: x.rolling(10).std())
     df["vol20"] = g.ret1.transform(lambda x: x.rolling(20).std())
     df["ma20"] = df.close / g.close.transform(lambda x: x.rolling(20).mean()) - 1
@@ -122,8 +126,6 @@ def _rule_acc(te, n, y):
 def walk(df, h):
     """df = add_features output. Per fold: fit on train, pick the threshold on val, refit on train+val, score test once.
     Strong (y=1) means the ticker's |forward return| beats the day's cross-sectional median."""
-    # ponytail: _split does not purge validation at the test boundary: the last h validation labels read the first h test
-    # closes (~h*15 of ~1800 rows, negligible). Upgrade: drop the last h validation dates per ticker.
     y = f"y{h}"
     d = tf.add_targets(df.copy(), h, "absmove").dropna(subset=FEATS)
     out = []

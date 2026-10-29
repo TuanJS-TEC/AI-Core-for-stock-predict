@@ -58,7 +58,7 @@ eval set cannot be made reliable without targeted negative sampling.
 ## Trial forecast with user price files (`data/stock/`, run 2026-10-21, reproduced 2026-10-26)
 - Price data: 15 files x 1,444 sessions (2021-01-04 .. 2026-10-21), identical calendars, no gaps/NaN/duplicates, OHLC consistent, no move beyond the 7% HOSE band (looks dividend/split-adjusted, in thousand VND). Only 10 tickers overlap the NLP universe; missing BID, CTG, HDB, VHM, NVL; the extra VRE, MBB, SSI, VNM, GAS have little collected news (8-135 results). `data/prices.csv` = the 10 overlapping tickers.
 - Setup: `trial_forecast` features, rows from 2021-10-21, test from 2025-09-17 (after PhoBERT v1's training labels), h-session purge, backtest availability. Baseline NLP model was trained on labels up to 2026-04, so its row overlaps the test period.
-- Reproducible since 2026-10-26: `python -m nlp_module.trial_forecast --model-version baseline-tfidf-lr-v1` (the 2026-10-21 run was an ad-hoc script). `--test-start` defaults to 2025-09-17 and must stay at/after the last label the NLP model saw; leaving it to `--test-frac 0.3` instead starts the test at 2025-04-18, inside PhoBERT's training labels, and shrinks every effect (T+5 diff -0.014 instead of -0.029).
+- Reproducible since 2026-10-26: `python -m nlp_module.forecast.trial_forecast --model-version baseline-tfidf-lr-v1` (the 2026-10-21 run was an ad-hoc script). `--test-start` defaults to 2025-09-17 and must stay at/after the last label the NLP model saw; leaving it to `--test-frac 0.3` instead starts the test at 2025-04-18, inside PhoBERT's training labels, and shrinks every effect (T+5 diff -0.014 instead of -0.029).
 
 | NLP model | h | AUC price | AUC price+text | diff [95% CI, date bootstrap] |
 |---|---|---|---|---|
@@ -96,7 +96,7 @@ would need the rank mode picked on validation, i.e. wired into `walk_forward` in
 - Older diagnostic, unchanged: yearly Spearman IC of `sentiment_mean` vs forward returns is within +-0.05 and flips sign between years.
 - Not a verdict on text in general: raw direction is dominated by the market move, the five most news-driven tickers (incl. NVL) have no prices yet, and the model is the simplest linear one.
 
-## Walk-forward, 3 folds (`python -m nlp_module.walk_forward`, run 2026-10-21)
+## Walk-forward, 3 folds (`python -m nlp_module.forecast.walk_forward`, run 2026-10-21)
 Per fold, PhoBERT is retrained on dev labels published before the validation window (epoch chosen on labels inside it) and re-scores every article (`nlp_model_version = phobert-fold{A,B,C}`). The forecaster (logistic regression, C in {0.01, 0.1, 1, 10}) and the feature set are chosen on validation, refit on train+validation, and scored once on test. h-session purge before validation and before test. 10 tickers.
 
 | Fold | Train / Val / Test | NLP labels (train/val), val F1 | h | AUC test price | AUC test price+text | Picked on val |
@@ -414,7 +414,7 @@ to optimise. Repeated readings accumulate in `market_quote` (`quotes` appends on
 UI's "Lịch sử theo dõi" panel grows with each run; schedule it if you want a real series.
 
 ## Earnings-change features from HOSE profit explanations (2026-10-27)
-`nlp_module/fundamentals.py`: `FUND = has_fund, np_yoy, fund_age`. `np_yoy` is the signed LNST change vs the same
+`nlp_module/forecast/fundamentals.py`: `FUND = has_fund, np_yoy, fund_age`. `np_yoy` is the signed LNST change vs the same
 period last year, parsed from the issuer's own "Giải trình biến động LNST" filing, clipped to [-2, 2]. The feature is
 live for 90 days after `published_at + 30 min`, the same backtest rule as articles. Filings are posted at their real
 time, so there is no publication-lag assumption.
@@ -445,7 +445,7 @@ months of training rows that have filings, and that does not transfer. The fault
 definition. A fair test needs history before 2025, which means a different source for the timestamps (the HOSE API
 does not serve it) or a user-supplied BCTC file. Until then, keep `--fund` off in any forecaster that ships.
 
-**Parser fix, rerun 2026-10-29.** The table above uses the fixed parser. `python -m nlp_module.fundamentals --check`
+**Parser fix, rerun 2026-10-29.** The table above uses the fixed parser. `python -m nlp_module.forecast.fundamentals --check`
 compares the parsed full-year % with audited consolidated statements from `vnfinancialdata` (public HF dataset, annual
 only, 2009-2025). The old parser took the *first* LNST mention. Many filings state the separate (parent-only) figure
 first, so FY2025 matched only 2 of 10: PLX +13.8% vs -4% audited (wrong sign), VRE +928% vs +57%. `profit_change` now
@@ -481,7 +481,7 @@ cross-sectional target, and with 10 tickers near-constant per-ticker features le
 only in volcast (next section). Text features add nothing on top of BCTC in any row.
 
 ## Volatility forecast (volcast-v2 with BCTC, 2026-10-29; v1 price-only 2026-10-28)
-`nlp_module/volcast.py` predicts **volatility magnitude**, not direction. Target `absmove` is whether |close t→t+h return|
+`nlp_module/forecast/volcast.py` predicts **volatility magnitude**, not direction. Target `absmove` is whether |close t→t+h return|
 beats the cross-sectional median of the 15 tickers in `data/stock/`, for h = 2 and h = 5 sessions. Features:
 price/volume (ret1, ret5, ret20, vol10, vol20, ma20, range, vz, mret1, mret5) plus `fundamentals.BCTC` since v2.
 Text and HOSE earnings-filing features are not used (no gain, sections above).
@@ -491,8 +491,8 @@ with >= 50 calls. The model (logit, or gbm = HistGradientBoosting) is chosen on 
 (`walk_forward.FOLDS`), and each test window is scored once. The baseline `rule_acc` uses no model: it calls the highest
 (or lowest) cross-sectional vol10 rank (centred ordinal rank, so top and bottom are symmetric), with the same number of
 calls but scored on its own rows. Because the threshold is the widest coverage at which validation only just reaches 0.65,
-test accuracy is expected to land below 0.65 on average. Numbers below are from `data/volcast_report.json` (v2, 2026-10-29);
-v1's are in `data/volcast_report-v1.json`, and its bundle is kept as `data/models/volcast-v1.joblib`.
+test accuracy is expected to land below 0.65 on average. Numbers below are from `data/reports/volcast_report.json` (v2, 2026-10-29);
+v1's are in `data/reports/volcast_report-v1.json`, and its bundle is kept as `data/models/volcast-v1.joblib`.
 
 | fold | h | model | threshold | val_cov v1 → v2 | test_acc v1 → v2 | test_cov v1 → v2 | test_n v2 | CI 95% v2 | rule_acc v2 | rule CI 95% v2 |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -517,7 +517,7 @@ but not news; (3) fold C still lands below 0.65 on test.
 cross-sectional ranks of vol10, vol20, range and |ret1|, picked the model by validation coverage (then accuracy) and
 raised the validation threshold to >= 0.665. It was compared once against `v2fixed` = v2 features and selection with
 the two bug fixes of 2026-10-29 (validation purged of the h sessions before test; live ret1 taken from the exchange ref
-price across dividend seams). Files: `data/volcast_eval_v2fixed.txt`, `data/volcast_eval_v3.txt`.
+price across dividend seams). Files: `data/reports/volcast_eval_v2fixed.txt`, `data/reports/volcast_eval_v3.txt`.
 
 | fold | h | model v2fixed → v3 | val_cov | test_acc | test_cov | test_n | CI 95% v2fixed | CI 95% v3 | rule_acc |
 |---|---|---|---|---|---|---|---|---|---|
@@ -537,10 +537,10 @@ test_acc >= v2fixed at both h, and (c) fold C test_n >= 100 at both h (a row wit
 purge fix, not retrained). Note that with the purge, v2's fold C h=2 CI no longer clears the rule's
 (0.569 [0.530, 0.607] vs 0.553 [0.515, 0.591]); the "first row where the CI clears" claim above is pre-purge.
 
-The purge also changed v2's own selection: comparing the live report (`data/volcast_report.json`, pre-purge) with
+The purge also changed v2's own selection: comparing the live report (`data/reports/volcast_report.json`, pre-purge) with
 `v2fixed`, the logit/gbm pick flipped in 5 of 6 rows (A2, B2, C2, A5, B5). Fold C h=2 now picks logit @0.062 (test
 0.569, n=645) vs the live bundle's gbm @0.057 (pre-purge test 0.625, n=523); the C5 threshold is 0.072 vs live 0.082.
-Rerunning `python -m nlp_module.volcast train` will therefore change the live model. Five flips in six rows put the
+Rerunning `python -m nlp_module.forecast.volcast train` will therefore change the live model. Five flips in six rows put the
 logit/gbm pick at noise level.
 
 **v2.1 fixes (2026-10-29).** Two bugs, no feature or gate change:
@@ -553,7 +553,7 @@ logit/gbm pick at noise level.
    so they no longer span a raw ex-date jump (TCB 2026-10-29: ref 22.35 vs previous close 33.55). History rows are
    unchanged (the index is the close rescaled).
 
-v2.1 eval (`data/volcast_eval_v2_1.txt`, fold C test now includes live 2026-10-26..29): test_acc A2 0.638 (n 94),
+v2.1 eval (`data/reports/volcast_eval_v2_1.txt`, fold C test now includes live 2026-10-26..29): test_acc A2 0.638 (n 94),
 B2 0.659, C2 0.569, A5 0.690, B5 0.693, C5 0.592 (n 549); mean 0.6402, mean (model - vol-rank rule) +0.0302.
 
 **Wilson gate trial (pre-registered 2026-10-29, before the run).** Threshold = widest validation coverage whose Wilson
@@ -563,7 +563,7 @@ lifts accuracy for the rule too; (b) fold C test_acc >= v2.1 (0.569 at h=2, 0.59
 at both h. Caveat: these test windows have been read several times before (v1, v2, v3, v2fixed), so a pass is weaker
 evidence than a first look. A hard coverage cap (e.g. 30%) was not tried: its value would come from fold C's test.
 
-Result (`data/volcast_eval_wilson.txt`, one run):
+Result (`data/reports/volcast_eval_wilson.txt`, one run):
 
 | fold | h | model | val_acc | test_acc v2.1 → Wilson | test_n v2.1 → Wilson | CI 95% Wilson | rule_acc | model - rule |
 |---|---|---|---|---|---|---|---|---|
@@ -576,7 +576,7 @@ Result (`data/volcast_eval_wilson.txt`, one run):
 
 (a) **pass**: +0.0549 > +0.0302. (b) **pass**: C2 0.626 >= 0.569, C5 0.620 >= 0.592. (c) **pass**: 470 and 229.
 Mean test_acc 0.6574 (v2.1 0.6402). **Shipped as `volcast-v2.1`** (bundle retrained 2026-10-29 on v2 features with all
-fixes; previous bundle and report kept as `data/models/volcast-v2-prepurge.joblib`, `data/volcast_report-v2-prepurge.json`).
+fixes; previous bundle and report kept as `data/models/volcast-v2-prepurge.joblib`, `data/reports/volcast_report-v2-prepurge.json`).
 Fold C still lands below 0.65 on test (0.626, 0.620), although both CIs now include 0.65; the gate is better
 calibrated, not solved. B2 lost (fewer calls, lower accuracy).
 
@@ -589,20 +589,20 @@ calibrated, not solved. B2 lost (fewer calls, lower accuracy).
 - SSI `volume` is normal-matched volume and may exclude put-through trades. This biases `vz` after the seam.
 - Text and HOSE earnings-filing features are not used (no gain). BCTC values are annual and lag up to ~15 months.
 - `data/bctc.parquet` must exist (README); train and predict fail without it rather than silently impute.
-- The v1 → v2 table and `data/volcast_report.json` were computed before validation was purged of the h sessions
+- The v1 → v2 table and `data/reports/volcast_report.json` were computed before validation was purged of the h sessions
   before the test start (~h×15 rows per fold); the purged v2 numbers are the v2fixed column of the v3 trial table.
   The walk_forward text/rank sections of the report also use `walk_forward._split` and are pre-purge and pre-sort-fix
   (v2.1 fix 1), so their val picks can differ at the 4th decimal if rerun.
 
 **How to run**
 ```
-python -m nlp_module.volcast train     # writes data/models/volcast.joblib + data/volcast_report.json
-python -m nlp_module.volcast predict   # writes vol_forecast; cron runs it on weekdays 15:00-16:00 via scripts/live_update.sh
+python -m nlp_module.forecast.volcast train     # writes data/models/volcast.joblib + data/reports/volcast_report.json
+python -m nlp_module.forecast.volcast predict   # writes vol_forecast; cron runs it on weekdays 15:00-16:00 via scripts/live_update.sh
 ```
 
 ## Baseline v2 (2026-10-29): not shipped, v1 stays live
 
-**Selection on dev validation only** (`cli select-baseline`, `data/baseline_v2_selection.txt`): train first 80% of the
+**Selection on dev validation only** (`cli select-baseline`, `data/reports/baseline_v2_selection.txt`): train first 80% of the
 1,324 dev labels by `published_at` (1,059), validate on the last 20% (265, from 2025-09-17, 5 negative). Grid: features
 v1/v2 x class weights balanced/sqrt x C 0.3/1/3/10, prior fixed at 1.
 
@@ -616,7 +616,7 @@ v1/v2 x class weights balanced/sqrt x C 0.3/1/3/10, prior fixed at 1.
 Negative recall is 3/5 in every row, so the grid only moves pos/neu. Bundles: `data/models/baseline-v2.joblib`
 (`baseline-tfidf-lr-v2`, all dev), twin `data/models/baseline-v2-cal.joblib` (first 80%).
 
-**Human `eval` stream, scored once** (`cli eval --stream eval`, `data/baseline_v2_eval.txt`; n = 240: 58 / 178 / 4):
+**Human `eval` stream, scored once** (`cli eval --stream eval`, `data/reports/baseline_v2_eval.txt`; n = 240: 58 / 178 / 4):
 
 | Model | macro-F1 [95% CI] | F1 pos / neu / neg | recall pos / neu / neg | neg correct |
 |---|---|---|---|---|
@@ -636,7 +636,7 @@ the table above; the CI differs in the third decimal from the earlier bootstrap'
 macro-F1 drop is the negative column (2 of 4 samples) and sits inside overlapping CIs; the dev-val gain (+0.06) did not
 transfer to human labels. No setting was changed after scoring.
 
-**Linker rules, measured on dev before eval** (`evaluate.link_changes`, `data/link_check.txt`; keep a rule only if it
+**Linker rules, measured on dev before eval** (`evaluate.link_changes`, `data/reports/link_check.txt`; keep a rule only if it
 changes more dev `skipped` samples than labeled ones):
 
 | Rule | dev changed: skipped | dev changed: labeled (pos / neu / neg) | Decision | eval changed, recorded only: skipped vs labeled |
@@ -663,7 +663,7 @@ remains), and their entropy / `uncertain` / `uncertain_ratio` are not comparable
 0.888 / 0.571 abstain thresholds were chosen on v0 passages.
 
 ## News intensity/surprise features (news3, 2026-10-29)
-Six features added to `trial_forecast.NEWS3`, measured with `--news3` (full tables: `data/news3_report.txt`). All use
+Six features added to `trial_forecast.NEWS3`, measured with `--news3` (full tables: `data/reports/news3_report.txt`). All use
 only results available at the 15:00 close (`published_at + BACKTEST_DELAY` <= close t).
 
 | feature | definition | missing -> imputed |
@@ -746,8 +746,8 @@ On this window the strongest news3 features (`sentiment_shock_24h` 0.538, `hours
 at the level of `sentiment_mean_24h`, below `news_count_72h`; vol10 is weak here (0.515 vs 0.582 on the trial split).
 
 ## Text->Return regression (Ridge, 2026-10-29)
-A direct text-to-return model, measured per walk-forward fold (`python -m nlp_module.text_return --target absmove|excess`,
-`nlp_module/text_return.py`; full tables: `data/text_return_report.txt`). Runtime ~10 s per target.
+A direct text-to-return model, measured per walk-forward fold (`python -m nlp_module.forecast.text_return --target absmove|excess`,
+`nlp_module/forecast/text_return.py`; full tables: `data/reports/text_return_report.txt`). Runtime ~10 s per target.
 
 **Design.**
 - Input: 11,372 direct articles (`baseline-tfidf-lr-v1`, `relation='direct'`, `is_representative=1`, `published_at`
@@ -802,4 +802,4 @@ drops weekend and holiday articles that Ridge training keeps (Monday's window mi
 articles); that information loss pushes the result toward the null.
 
 Only 10 tickers have prices (adding BID, CTG, HDB, VHM, NVL price files is the user's action; see
-`python -m nlp_module.trial_forecast --build-prices`).
+`python -m nlp_module.forecast.trial_forecast --build-prices`).

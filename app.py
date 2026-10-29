@@ -13,7 +13,7 @@ import streamlit as st
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
-from nlp_module import volcast
+from nlp_module.forecast import volcast
 from nlp_module.text import normalize
 from nlp_module.sentiment.base import LABELS, entropy as calc_entropy
 
@@ -1097,7 +1097,7 @@ không phải tỷ lệ đúng. Với 7 mã so được, chênh lệch vài ph�
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# VOLATILITY FORECAST (reads vol_forecast + walk-forward report; writing is `python -m nlp_module.volcast`)
+# VOLATILITY FORECAST (reads vol_forecast + walk-forward report; writing is `python -m nlp_module.forecast.volcast`)
 # ════════════════════════════════════════════════════════════════════════════
 with tab_vol:
     st.header("Dự báo biến động")
@@ -1108,7 +1108,7 @@ with tab_vol:
     _rep = vol_report()
     if _vf.empty or not _rep or not (ROOT / volcast.BUNDLE).exists():
         st.info("Chưa có dự báo biến động (thiếu model, báo cáo hoặc bảng `vol_forecast` còn rỗng). Chạy:\n\n"
-                "```\npython -m nlp_module.volcast train\npython -m nlp_module.volcast predict\n```")
+                "```\npython -m nlp_module.forecast.volcast train\npython -m nlp_module.forecast.volcast predict\n```")
     else:
         _lbl = {"strong": "Mạnh", "weak": "Yếu"}
         _vf["cell"] = [f"{_lbl.get(c, '—')} ({p:.2f})" for c, p in zip(_vf["call"], _vf["p_strong"])]

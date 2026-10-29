@@ -1,7 +1,7 @@
 """Minimal trial forecaster: proves text features are readable by a forecaster and runs the price-only vs
 price+text ablation. NOT the real fusion model. Input: OHLCV CSV with columns date,symbol,close
 (rows = trading days, so T+h follows the exchange calendar by construction).
-python -m nlp_module.trial_forecast [--model-version baseline-tfidf-lr-v1]"""
+python -m nlp_module.forecast.trial_forecast [--model-version baseline-tfidf-lr-v1]"""
 import argparse
 from datetime import datetime, time, timedelta, timezone
 
@@ -11,7 +11,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import StandardScaler
 
-from .contract import build_snapshot
+from ..contract import build_snapshot
 
 CLOSE_UTC = time(8, 0)   # HOSE close 15:00 Asia/Ho_Chi_Minh = 08:00 UTC; forecast_cutoff = close of day t
 UNIVERSE = "ACB BID CTG FPT HDB HPG MSN MWG NVL STB TCB VCB VHM VIC VPB".split()   # the NLP forecasting universe; app.py keeps its own copy
@@ -146,8 +146,9 @@ def diff_ci(text, price, boot=2000, seed=0):
 
 
 def main(argv=None):
-    from . import fundamentals, storage
-    from .pipeline import load_results
+    from .. import storage
+    from . import fundamentals
+    from ..pipeline import load_results
     ap = argparse.ArgumentParser()
     ap.add_argument("--prices", default="data/prices.csv")
     ap.add_argument("--model-version", default="baseline-tfidf-lr-v1")

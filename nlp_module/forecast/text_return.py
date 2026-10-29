@@ -1,7 +1,7 @@
 """Direct Text->Return regression: TF-IDF + Ridge maps each direct article to its ticker's forward return relative to
 the day's cross-section, the mean prediction over 24h becomes a daily feature, and a forecaster trained on the
 validation window (where Ridge predictions are out-of-sample) is scored once on test, per walk-forward fold.
-python -m nlp_module.text_return --target absmove|excess"""
+python -m nlp_module.forecast.text_return --target absmove|excess"""
 import argparse
 import sqlite3
 import time
@@ -17,7 +17,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from . import trial_forecast as tf
-from .contract import BACKTEST_DELAY
+from ..contract import BACKTEST_DELAY
 from .walk_forward import FOLDS, PRICE, _split
 
 CLOSE = pd.Timedelta(hours=tf.CLOSE_UTC.hour, minutes=tf.CLOSE_UTC.minute)
@@ -148,6 +148,7 @@ def report(target, out, n_articles):
 def write_block(path, target, text):
     """Replace this target's block in the report file, keep the other target's."""
     p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
     old = p.read_text().split("== target: ")[1:] if p.exists() else []
     keep = ["== target: " + b for b in old if not b.startswith(f"{target} ==")]
     p.write_text("\n".join(b.rstrip("\n") + "\n" for b in sorted(keep + [text])))
@@ -158,7 +159,7 @@ def main(argv=None):
     ap.add_argument("--target", required=True, choices=["absmove", "excess"])
     ap.add_argument("--prices", default="data/prices.csv")
     ap.add_argument("--db", default="data/nlp.db")
-    ap.add_argument("--out", default="data/text_return_report.txt")
+    ap.add_argument("--out", default="data/reports/text_return_report.txt")
     a = ap.parse_args(argv)
     t = time.time()
     out, n = run(a.target, a.prices, a.db)

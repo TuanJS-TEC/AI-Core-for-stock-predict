@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nlp_module.text_return import article_labels, assign_sessions, daily_feature, train_articles
+from nlp_module.forecast.text_return import article_labels, assign_sessions, daily_feature, train_articles
 
 DATES = pd.DatetimeIndex(["2026-01-05", "2026-01-06", "2026-01-09"])     # Mon, Tue, Fri (Wed-Thu holiday)
 
@@ -60,7 +60,7 @@ def test_daily_feature_window_and_empty_cells():
 
 
 def test_verdict_rule():
-    from nlp_module.text_return import verdict
+    from nlp_module.forecast.text_return import verdict
     out = pd.DataFrame({"h": [2, 2, 2, 5, 5, 5], "diff": [0.01, 0.01, -0.001, 0.01, -0.002, 0.004]})
     assert verdict(out) == ({2: 2, 5: 2}, pytest.approx(0.0051667, abs=1e-6), True)
     assert verdict(out.assign(diff=[0.01, 0.01, -0.001, 0.01, -0.002, 0.003]))[2] is False    # mean 0.005, not > 0.005

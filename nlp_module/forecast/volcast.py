@@ -15,7 +15,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from . import fundamentals, storage
+from .. import storage
+from . import fundamentals
 from . import trial_forecast as tf
 from .trial_forecast import CLOSE_UTC
 from .walk_forward import FOLDS, _split
@@ -23,7 +24,7 @@ from .walk_forward import FOLDS, _split
 FEATS = ["ret1", "ret5", "ret20", "vol10", "vol20", "ma20", "range", "vz", "mret1", "mret5"] + fundamentals.BCTC
 VERSION = "volcast-v2.1"   # v1 = price only; v2 adds BCTC; v2.1 = Wilson-bound gate + purge/seam/sort fixes
 BUNDLE = "data/models/volcast.joblib"
-REPORT = "data/volcast_report.json"
+REPORT = "data/reports/volcast_report.json"
 HORIZONS = (2, 5)
 COLS = ["date", "symbol", "close", "high", "low", "volume"]
 RET_BAND = 0.072   # exchange daily limit is 7% (+ price rounding); a bigger daily move means a corporate action or a calendar gap
@@ -219,7 +220,7 @@ def main(argv=None):
             print(f"wrote {BUNDLE}")
         return
     if not os.path.exists(BUNDLE):
-        raise SystemExit(f"{BUNDLE} missing: run `python -m nlp_module.volcast train` first")
+        raise SystemExit(f"{BUNDLE} missing: run `python -m nlp_module.forecast.volcast train` first")
     out = predict_latest(df, joblib.load(BUNDLE))
     t = storage.now()
     c.executemany("INSERT OR REPLACE INTO vol_forecast VALUES (?,?,?,?,?,?,?)",

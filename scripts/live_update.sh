@@ -17,4 +17,4 @@ $CLI process --model phobert:data/models/phobert-v1 --abstain-entropy 0.571
 hm=$((10#$(date +%H%M)))
 if [ "$(date +%u)" -le 5 ] && [ "$hm" -ge 900 ] && [ "$hm" -le 1515 ]; then $CLI quotes; fi
 # own window, not nested in the quotes one: predict reads the stored post-close bar (live_bars only accepts fetched_at >= 08:00 UTC), so an early run harmlessly re-predicts the previous session
-if [ "$(date +%u)" -le 5 ] && [ "$hm" -ge 1500 ] && [ "$hm" -le 1600 ]; then .venv/bin/python -m nlp_module.volcast predict || echo "volcast predict failed, continuing"; fi
+if [ "$(date +%u)" -le 5 ] && [ "$hm" -ge 1500 ] && [ "$hm" -le 1600 ]; then .venv/bin/python -m nlp_module.forecast.volcast predict || echo "volcast predict failed, continuing"; fi

@@ -124,7 +124,7 @@ def main(argv=None):
         train(X, y, a.version).save(a.out)
         print("trained on", len(X), "dev samples ->", a.out)
     elif a.cmd == "select-baseline":
-        # overwrites data/models/baseline-v2*.joblib and data/baseline_v2_selection.txt (what the 2026-10-29 one-shot eval scored):
+        # overwrites data/models/baseline-v2*.joblib and data/reports/baseline_v2_selection.txt (what the 2026-10-29 one-shot eval scored):
         # a rerun gives a different model under the same version string
         from itertools import product
         from pathlib import Path
@@ -159,7 +159,8 @@ def main(argv=None):
                f"chosen: features={f} weights={w} C={C}  prior(pos,neu,neg)={prior}",
                f"val before prior: macro-F1 {before['macro_f1']:.4f}  recall {recalls(before)}",
                f"val after prior:  macro-F1 {after['macro_f1']:.4f}  recall {recalls(after)}"]
-        Path("data/baseline_v2_selection.txt").write_text("\n".join(out) + "\n")
+        Path("data/reports").mkdir(parents=True, exist_ok=True)
+        Path("data/reports/baseline_v2_selection.txt").write_text("\n".join(out) + "\n")
         print("\n".join(out[-3:]))
     elif a.cmd == "train-phobert":
         from .sentiment import phobert

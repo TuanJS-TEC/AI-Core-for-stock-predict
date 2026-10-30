@@ -871,3 +871,32 @@ directory returns exactly the 20 tickers (ACB BID CTG FPT GAS HDB HPG MBB MSN MW
 **Decision: not shipped. Kept 15 tickers (`volcast-v2.1`); no train/predict.** The 20-ticker basket gains calls in fold C
 (both horizons) but loses every fold A and B call (the Wilson gate no longer passes), so the mean falls below the
 fixed-15 baseline. Rule and eval were not tweaked after seeing the numbers.
+
+
+## BCTC "ticker identity" check: pre-registered rule (written 2026-10-30 10:45:09+07:00, before the run)
+
+Spec: "Kiểm định BCTC có phải học vẹt mã không" (multimodal-decision-system design, NLP fixes item 4). The 4 BCTC ratios
+change once a year per ticker, so with 15 tickers they may act as a ticker-ID code. Rule written before running
+`volcast bctc-check`; it is applied mechanically and not changed after seeing numbers (no change to the rule, the
+aggregation, n_perm, seed, symbols or test window). Code: `volcast.bctc_check`, commit 5e96f5d (not yet run on real data).
+
+- Run: `python -m nlp_module.forecast.volcast bctc-check --test-end 2026-10-30`, default 15 symbols (`volcast.SYMBOLS`), `n_perm=20`,
+  `seed=0` (permutation i uses `default_rng(seed + i)`, the same mapping at h=2 and h=5), run once.
+- (a) Permutation: before `add_bctc`, each symbol's whole BCTC series (its own values and `available_at` dates) is moved to
+  a random other symbol (a random permutation of the 15 symbols; SSI has no BCTC series, so one symbol gets none). Point-in-time
+  stays intact; only the symbol -> series map is shuffled. Everything else (price features, labels, folds, model/threshold
+  selection) is the unchanged `walk`.
+- (b) Leave-one-ticker-out: per symbol, `walk(hold=symbol)` trains/validates/refits without it and tests only on its rows;
+  test_acc pooled over its calls in the 6 cells (hits / calls). Descriptive only, NOT part of the decision rule.
+- **Aggregation (chosen before the run):** score = mean of `test_acc` over the same 6 cells as eval (h in {2,5} x fold A/B/C);
+  a cell with no call counts as **0.5** (chance for the median-split label). Same function for `real` and for each perm run.
+  Why not 0 (used for the *difference* vs the rule in the baseline): there a no-call cell has diff 0 by construction; here a 0
+  would make "fewer calls" look like "lower accuracy" and conflate abstention with error. Why not the mean over call cells
+  only: the set of cells differs between runs, so real and perm would not be comparable. The number of cells with a call is
+  reported for real and for each perm (descriptive).
+- **Decision rule:** if mean(perm over the 20 runs) >= real - 0.01, conclude **BCTC only encodes ticker identity** (no evidence
+  it carries information beyond a ticker code) and record it. Otherwise BCTC beats the permuted control by more than 0.01.
+- Either way **the live volcast does not change** (`VERSION`, `SYMBOLS`, bundle stay; no train/predict); a change would need a
+  separate decision.
+- Known caveats written in advance: `mret1/mret5` and the label median include the held-out symbol in loto; 20 permutations
+  with 6 cells give a coarse null (permutation sd reported, no p-value claimed).

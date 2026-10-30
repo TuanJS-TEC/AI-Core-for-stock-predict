@@ -9,6 +9,9 @@ COMPANIES_CSV = Path(__file__).resolve().parent.parent / "data" / "companies.csv
 LIST_ARTICLE_MIN = 4      # articles linking >= this many companies are treated as market-level
 AMBIGUOUS_SYMBOLS = {"VND", "HCM", "GAS"}
 _CTX_BEFORE = re.compile(r"(cổ phiếu|mã|\bcp|chứng khoán)\s*$", re.I)
+# 40 chars before a mention: a bank named as where an account sits, or a company name used as a development's name
+_ACCOUNT_BEFORE = re.compile(r"(tài khoản( mở)?( tại)?|chuyển (tiền|khoản)( vào| qua)?)\s*$", re.I)
+_PLACE_BEFORE = re.compile(r"\b(tại|ở)(\s+(biệt thự|căn hộ|dự án|khu đô thị|nhà))?\s*$", re.I)
 _STOCK_CTX = re.compile(r"cổ phiếu|\bmã\b|\bcp\b|hose|hnx|upcom|công ty|ngân hàng|tập đoàn", re.I)
 
 
@@ -57,6 +60,12 @@ class Linker:
                     before = text[max(0, m.start() - 25):m.start()]
                     if not _CTX_BEFORE.search(before) or re.search(r"tp\.?\s*$", before, re.I):
                         continue
+                before = text[max(0, m.start() - 40):m.start()]
+                if _ACCOUNT_BEFORE.search(before):
+                    continue
+                nxt = text[m.end():m.end() + 30].split(None, 1)
+                if _PLACE_BEFORE.search(before) and text[m.end():m.end() + 1].isspace() and nxt and nxt[0][0].isupper():
+                    continue      # "tại Vinhomes Riverside": a place, not the company
                 out.append(Mention(eid, m.start(), m.end(), alias))
         return sorted(set(out), key=lambda m: (m.start, m.end))
 

@@ -66,3 +66,22 @@ def link_changes(c, old, new, stream):
             ch = "demoted" if o.relation == "direct" else "other"
         out[(label or status, ch)] += 1
     return out
+
+
+def drop_stale_links(c, linker):
+    """Delete article_company_result rows (every model version) that `linker` no longer links; -> rows deleted.
+    Also deletes their snapshot_lineage rows (FK); feature_snapshot rows built from them stay stale until rebuilt."""
+    linked = {}
+    stale = []
+    for rid, dv, eid, title, text, pub in c.execute(
+            "SELECT r.result_id, r.document_version_id, r.target_entity_id, v.title, v.normalized_text, v.published_at"
+            " FROM article_company_result r JOIN document_version v USING (document_version_id)").fetchall():
+        if dv not in linked:
+            linked[dv] = {l.entity_id for l in linker.link(title or "", text, pub or "")}
+        if eid not in linked[dv]:
+            stale.append((rid,))
+    # snapshot_lineage is derived and FK-references the results: drop those rows, snapshots must be rebuilt afterwards
+    c.executemany("DELETE FROM snapshot_lineage WHERE result_id=?", stale)
+    c.executemany("DELETE FROM article_company_result WHERE result_id=?", stale)
+    c.commit()
+    return len(stale)

@@ -649,6 +649,17 @@ The fraud rule points opposite ways on the two streams: dev's silver labels (Cla
 the human eval labels call them `skip`. The decision used dev only and stands; the disagreement is a labeling-guideline
 question, not settled here. The linker is unchanged from before this round.
 
+**Landmark and bank-account mentions (2026-10-30).** `Linker.find` now skips a mention when the 40 characters before it match
+`_ACCOUNT_BEFORE` ("tài khoản (mở) (tại)", "chuyển tiền/khoản (vào/qua)"), or match `_PLACE_BEFORE` ("tại/ở" + optional
+"biệt thự|căn hộ|dự án|khu đô thị|nhà") and the alias is followed by a capitalised word (Vinhomes Riverside, Ocean Park).
+This differs from the landmark rule removed above: that one was a suffix/corporate-context heuristic; this one is a prefix
+heuristic. `link_changes` against the previous linker (`data/reports/link_check.txt`): dev dropped 2 (1 skipped, 1 neutral),
+demoted 4; eval dropped 5 (all skipped), demoted 8 (all skipped). Existing results were then purged with
+`evaluate.drop_stale_links` on `data/nlp.db`: **584 `article_company_result` rows deleted** (98 article/company pairs, up to 6
+model versions each; 57 account, 41 place; mostly VHM 35, VCB 19, CTG 10, TCB 9) and 1,613 derived `snapshot_lineage` rows.
+`feature_snapshot` rows built from them are stale until snapshots are rebuilt. Known false drops: "tại FPT Telecom",
+"tại FPT Shop/Play" (FPT subsidiaries/shops), "tại Masan MEATLife".
+
 **Passage format v1** (`passages.INPUT_FORMAT_VERSION = "v1"`): title-only links now take the article's lead
 sentence(s) instead of the title alone (1,763 v1 results had `sentence_ids='[]'`). Existing annotation samples keep the
 text they were labeled on. Because v1 was kept and the corpus not re-scored, this applies only to articles processed

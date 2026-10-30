@@ -20,6 +20,15 @@ class TextTest(unittest.TestCase):
         for _, a, b, txt in s:
             self.assertEqual(t[a:b], txt)
 
+    def test_landmark_is_not_a_company(self):
+        self.assertNotIn("VHM", [l.symbol for l in L.link("", "BIDV thu giữ biệt thự tại Vinhomes Riverside của bị cáo.")])
+
+    def test_bank_account_is_not_a_company(self):
+        self.assertNotIn("VCB", [l.symbol for l in L.link("", "Nạn nhân chuyển tiền vào tài khoản mở tại Vietcombank.")])
+
+    def test_real_vinhomes_news_still_links(self):
+        self.assertIn("VHM", [l.symbol for l in L.link("Vinhomes báo lãi quý 3", "Vinhomes ghi nhận doanh thu tăng.")])
+
     def test_keeps_negation_and_diacritics(self):
         self.assertIn("không", normalize("Lợi nhuận không tăng"))
         self.assertEqual(fold("Đầu tư Hòa Phát"), "dau tu hoa phat")
@@ -232,13 +241,30 @@ class LinkChangesTest(unittest.TestCase):
         from collections import Counter
         from nlp_module.evaluate import link_changes
         c = storage.connect(":memory:")
-        v, _ = storage.ingest(c, ParsedDoc("t", "https://a.vn/x", "news", "BIDV thu giữ biệt thự tại Vinhomes Riverside",
+        v, _ = storage.ingest(c, ParsedDoc("t", "https://a.vn/x", "news", "BIDV thu giữ tài sản của Vinhomes",
                                            "Ngân hàng xử lý tài sản bảo đảm.", "2026-01-01T00:00:00Z", None, b"<html/>"),
                               tempfile.mkdtemp())
         c.execute("INSERT INTO annotation_sample (sample_id, document_version_id, target_entity_id, passage_text,"
                   " sentence_ids, stream, annotation_status) VALUES ('s1', ?, 'VHM', 'x', '0', 'dev', 'skipped')", (v,))
         self.assertEqual(link_changes(c, Linker(self.ROWS), Linker(self.ROWS[:1]), "dev"),
                          Counter({("skipped", "dropped"): 1}))
+
+    def test_drop_stale_links_deletes_only_unlinked_results(self):
+        from nlp_module.evaluate import drop_stale_links
+        c = storage.connect(":memory:")
+        ids = []
+        for u, title, body in (("a", "BIDV thu giữ biệt thự tại Vinhomes Riverside", "Ngân hàng xử lý tài sản."),
+                               ("b", "Vinhomes báo lãi quý 3", "Vinhomes ghi nhận doanh thu tăng.")):
+            v, _ = storage.ingest(c, ParsedDoc("t", f"https://a.vn/{u}", "news", title, body, "2026-01-01T00:00:00Z",
+                                               None, b"<html/>"), tempfile.mkdtemp())
+            ids.append(v)
+            c.execute("INSERT INTO article_company_result (result_id, document_version_id, target_entity_id, symbol,"
+                      " relation, sentence_ids, passage_text, nlp_model_version, processed_at)"
+                      " VALUES (?, ?, 'VHM', 'VHM', 'direct', '[]', 'x', 'm', '2026-01-01T00:00:00Z')", (u, v))
+        c.execute("INSERT INTO snapshot_lineage VALUES ('VHM', '2026-01-02', 'f', 'm', 'live', 'a')")
+        self.assertEqual(drop_stale_links(c, Linker(self.ROWS)), 1)
+        self.assertEqual(c.execute("SELECT COUNT(*) FROM snapshot_lineage").fetchone()[0], 0)
+        self.assertEqual([r[0] for r in c.execute("SELECT document_version_id FROM article_company_result")], [ids[1]])
 
     def test_link_changes_unlinked_target_is_same(self):
         from collections import Counter

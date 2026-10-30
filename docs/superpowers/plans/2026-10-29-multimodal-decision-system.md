@@ -133,7 +133,30 @@ def test_empty_fetch_keeps_data(...):                      # fake returns pd.Dat
 
 **Files:**
 - Modify: `tests/test_alignment.py`
+- Modify: `Pipeline_V1.2/sync_stock_parquet.py` (`--full-refresh`, `drop_open_session`)
+- Test: `Pipeline_V1.2/tests/test_sync.py`
 
+**Bổ sung sau khi Task 2 bị chặn (2026-10-30):** vết nối TCB nằm sẵn trong dữ liệu đã lưu (27/10 = 33.55 cũ, 28/10 và
+29/10 đã theo chuẩn mới), còn lần fetch tăng dần bắt đầu từ 29/10 và khớp, nên `basis_changed` của Task 1 không thể
+bắt được. Cần một cách tải lại tường minh. Ngoài ra chạy sync giữa phiên (trước 15:00 giờ VN) ghi thêm một dòng phiên
+hôm nay chưa chốt, làm lệch lịch giữa các mã (`test_prices_aligned_and_unique` hỏng).
+
+**Interfaces:**
+- Produces:
+  - `process_stock_file(..., full_refresh: bool = False)`. Khi True, bỏ bước tăng dần: gọi `fetch_latest_ohlcv(symbol,
+    df_csv.time.min() as "%Y-%m-%d", end_date_str)` và, nếu kết quả không rỗng, nó thay toàn bộ `df_merged` (kèm
+    `logger.warning("[SYM] tải lại toàn bộ lịch sử (--full-refresh)")`); rỗng thì giữ nguyên dữ liệu.
+  - CLI `--full-refresh SYM...` (các mã cần tải lại toàn bộ; mã không có trong danh sách chạy như cũ).
+  - `drop_open_session(df: pd.DataFrame, now: pd.Timestamp) -> pd.DataFrame`: bỏ các dòng có ngày bằng ngày của `now`
+    (giờ Việt Nam) khi `now` trước 15:00 giờ Việt Nam. `fetch_latest_ohlcv` gọi nó trên kết quả trước khi trả, nên
+    cả sync, `--full-refresh` lẫn `init_stock_file` (Task 5) không bao giờ ghi phiên chưa chốt.
+
+- [ ] **Step 0 (làm trước Step 1):** Trong `Pipeline_V1.2/tests/test_sync.py` viết test hỏng rồi cài đặt phần Interfaces
+  ở trên: `test_full_refresh_replaces_history` (lưu 33.8/33.55/22.35 liền kề, fake trả chuỗi đã điều chỉnh, kiểm tra
+  `calls` bắt đầu ở ngày đầu tiên đã lưu và parquet bằng chuỗi fetch), `test_full_refresh_empty_keeps_data`,
+  `test_drop_open_session_before_close` và `test_drop_open_session_after_close` (hai test dùng `now` cố định). Chạy
+  `cd Pipeline_V1.2 && $PY -m pytest tests -v` kỳ vọng tất cả PASS, rồi commit
+  `feat(sync): --full-refresh and drop the open session` (file CSV/parquet thật chưa bị đụng ở bước này).
 - [ ] **Step 1:** Thêm test vào `tests/test_alignment.py`:
 
 ```python
@@ -143,8 +166,9 @@ def test_no_corporate_action_seam():
 ```
 
 - [ ] **Step 2:** `$PY -m pytest tests/test_alignment.py -v`. Kỳ vọng FAIL với `n_big_moves == 1`, chính là TCB 28/10.
-- [ ] **Step 3:** Chạy sync cho TCB (kèm các biến vnstock ở Global Constraints):
-  `cd Pipeline_V1.2 && $PY sync_stock_parquet.py --symbols TCB`. Log phải có dòng "tải lại toàn bộ".
+- [ ] **Step 3:** Sao lưu `TCB_stock.csv` và `.parquet` ra scratchpad, rồi chạy sync cho TCB (kèm các biến vnstock ở
+  Global Constraints): `cd Pipeline_V1.2 && $PY sync_stock_parquet.py --symbols TCB --full-refresh TCB`. Log phải có
+  dòng "tải lại toàn bộ" và không có dòng phiên hôm nay nếu chạy trước 15:00.
 - [ ] **Step 4:** Chạy lại lệnh ở Step 2. Kỳ vọng `test_no_corporate_action_seam` PASS.
   `test_pipeline_prices_cover_nlp_copy` vẫn PASS vì FPT không đổi; test này được viết lại ở Task 3.
 - [ ] **Step 5:** Commit vào repo AI_Core: `test: no corporate-action seam in canonical prices`.

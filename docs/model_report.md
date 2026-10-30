@@ -900,3 +900,34 @@ aggregation, n_perm, seed, symbols or test window). Code: `volcast.bctc_check`, 
   separate decision.
 - Known caveats written in advance: `mret1/mret5` and the label median include the held-out symbol in loto; 20 permutations
   with 6 cells give a coarse null (permutation sd reported, no p-value claimed).
+
+### BCTC check result (run 2026-10-30 10:45 +0700, once, 47 s; full output `data/reports/volcast_bctc_check.txt`, local-only)
+
+`python -m nlp_module.forecast.volcast bctc-check --test-end 2026-10-30`, 15 symbols, n_perm=20, seed=0.
+
+| | real | perm mean | perm sd | perm min / max | cells with call (real) |
+|---|------|-----------|---------|----------------|------------------------|
+| h=2 (3 cells) | 0.6232 | 0.6232 | 0 | - | 2/3 |
+| h=5 (3 cells) | 0.5273 | 0.5273 | 0 | - | 1/3 |
+| 6 cells | **0.5752** | **0.5752** | 0.0000 | 0.5752 / 0.5752 | 3/6 |
+
+Rule applied mechanically: mean(perm) 0.5752 >= real - 0.01 = 0.5652, true. **By the pre-registered rule: BCTC only
+encodes ticker identity.** The live volcast does not change (nothing trained or predicted).
+
+**This conclusion is vacuous and must not be read as evidence about BCTC information.** All 20 permutations equal `real`
+to 4 decimals (sd 0) because, in this environment, every BCTC feature is constant 0 for all 15 tickers: `has_bctc` mean
+is 0.0 on every session. Cause (diagnosed after the run, nothing was changed): `fundamentals.annual_wide`'s
+`pivot_table(index=["ticker","year"], ...)` on the 923k-row `data/bctc.parquet` (693 tickers) returns the right 4833 rows
+but a ticker index with only 2 distinct values (AAA 4213 rows, AAM 620; pandas 2.3.3), so `bctc_features()` has 2 symbols
+and no ticker in `volcast.SYMBOLS` matches. A groupby-first + unstack gives the same 2-ticker result. The permutation
+code itself is exercised by unit tests (series move whole between symbols, dates intact). This also means the volcast
+fixed-15 baseline (+0.0318) and the 20-ticker basket decision were computed with BCTC features all zero, i.e. effectively
+price-only. The check has to be redone, after a separate decision to repair the BCTC loading, under a new pre-registered
+entry; the rule above is not edited and the result above is not replaced.
+
+Leave-one-ticker-out (descriptive, calls pooled over the 6 cells; not used in the rule), test_acc (calls) h=2 / h=5:
+ACB 0.515 (33) / 0.682 (22); FPT 0.700 (10) / 0.250 (4); GAS 0.762 (21) / 0.000 (4); HPG 0.500 (14) / 0.500 (44);
+MBB 0.500 (12) / -; MSN 0.250 (4) / 0.579 (38); MWG 0.333 (3) / -; SSI 0.667 (9) / -; STB 0.750 (4) / 0.591 (44);
+TCB 0.500 (2) / 0.448 (29); VCB 0.625 (8) / 0.643 (56); VIC - / -; VNM 0.333 (3) / -; VPB 0.644 (45) / -;
+VRE 0.600 (5) / 0.556 (27). With BCTC all zero this is leave-one-ticker-out for a price-only model; most counts are
+tiny, so no per-ticker reading.

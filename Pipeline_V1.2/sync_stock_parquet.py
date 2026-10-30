@@ -9,6 +9,7 @@ của cùng một ngày cùng tồn tại (ví dụ 2026-10-16 bị lặp trong 
 Vì dữ liệu được cập nhật thường xuyên, số dòng và mốc train/val/test (split_sizes) thay đổi theo dữ liệu.
 
 Dùng: python sync_stock_parquet.py              # lấy dữ liệu mới từ vnstock, chuẩn hóa, ghi parquet và CSV
+      python sync_stock_parquet.py --init BID CTG  # mã mới: tải lịch sử từ C.SYNC_INIT_START rồi đồng bộ như thường
       python sync_stock_parquet.py --no-fetch   # chỉ chuẩn hóa và lọc trùng dữ liệu đang có, không gọi API
 """
 
@@ -229,6 +230,26 @@ def process_stock_file(csv_path: str, output_dir: str, update_csv: bool = True,
             logger.warning(f"[{symbol}] Không thể cập nhật lại CSV {csv_path}: {e}")
 
 
+def init_stock_file(symbol: str, stock_dir: str, start: str = C.SYNC_INIT_START):
+    """Tải lịch sử của mã mới từ `start` tới hôm nay, ghi {SYM}_stock.csv đã chuẩn hóa; trả đường dẫn.
+
+    File đã tồn tại thì giữ nguyên. Tải rỗng thì trả None.
+    """
+    symbol = symbol.upper()
+    path = os.path.join(stock_dir, f"{symbol}_stock.csv")
+    if os.path.exists(path):
+        return path
+    df = fetch_latest_ohlcv(symbol, start_date=start, end_date=datetime.now().strftime("%Y-%m-%d"))
+    if df is None or df.empty:
+        logger.error(f"[{symbol}] Không tải được lịch sử từ {start}, không tạo file.")
+        return None
+    df = normalize_sessions(clean_types(df))
+    df[C.TIME_COL] = df[C.TIME_COL].dt.strftime("%Y-%m-%d %H:%M:%S")
+    df.to_csv(path, index=False)
+    logger.info(f"[{symbol}] Đã khởi tạo {os.path.basename(path)}: {len(df)} phiên từ {df[C.TIME_COL].iloc[0]}")
+    return path
+
+
 def check_alignment(stock_dir: str, symbols) -> bool:
     """Cảnh báo nếu các mã không có cùng dãy ngày (ví dụ một mã lấy dữ liệu mới thất bại)."""
     days = {}
@@ -284,6 +305,14 @@ def main(argv=None):
     )
 
     parser.add_argument(
+        "--init",
+        nargs="+",
+        default=[],
+        metavar="SYM",
+        help=f"Các mã mới: tải lịch sử từ {C.SYNC_INIT_START} và tạo file CSV nếu chưa có, trước khi đồng bộ"
+    )
+
+    parser.add_argument(
         "--no-fetch",
         action="store_true",
         help="Không gọi vnstock, chỉ chuẩn hóa thời gian và lọc trùng dữ liệu đang có"
@@ -295,6 +324,9 @@ def main(argv=None):
     if not os.path.exists(stock_dir):
         logger.error(f"Thư mục không tồn tại: {stock_dir}")
         return
+
+    for sym in args.init:
+        init_stock_file(sym, stock_dir)
 
     # Tìm tất cả file *_stock.csv
     csv_pattern = os.path.join(stock_dir, C.STOCK_CSV_GLOB)

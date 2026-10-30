@@ -161,3 +161,32 @@ def test_drop_open_session_after_close():
     df = frame(["2026-10-29 07:00:00", "2026-10-30 07:00:00"], [1.0, 2.0])
     out = S.drop_open_session(df, pd.Timestamp("2026-10-30 15:00", tz="Asia/Ho_Chi_Minh"))
     assert list(out.close) == [1.0, 2.0]
+
+
+def test_init_writes_csv_from_start(tmp_path, monkeypatch):
+    calls = []
+
+    def fake(sym, start_date, end_date, **k):
+        calls.append((sym, start_date))
+        return frame(["2021-01-04 00:00:00", "2021-01-05 00:00:00"], [1.0, 2.0])
+
+    monkeypatch.setattr(S, "fetch_latest_ohlcv", fake)
+    path = S.init_stock_file("bid", str(tmp_path))
+    assert calls == [("BID", "2021-01-04")] and path == str(tmp_path / "BID_stock.csv")
+    back = pd.read_csv(path)
+    assert list(back.columns) == list(C.RAW_COLS)
+    assert list(back["time"]) == ["2021-01-04 07:00:00", "2021-01-05 07:00:00"]
+
+
+def test_init_does_not_overwrite(tmp_path, monkeypatch):
+    csv = tmp_path / "BID_stock.csv"
+    csv.write_text("keep")
+    monkeypatch.setattr(S, "fetch_latest_ohlcv", lambda *a, **k: (_ for _ in ()).throw(AssertionError("fetched")))
+    assert S.init_stock_file("BID", str(tmp_path)) == str(csv)
+    assert csv.read_text() == "keep"
+
+
+def test_init_returns_none_on_empty_fetch(tmp_path, monkeypatch):
+    monkeypatch.setattr(S, "fetch_latest_ohlcv", lambda *a, **k: pd.DataFrame())
+    assert S.init_stock_file("BID", str(tmp_path)) is None
+    assert not (tmp_path / "BID_stock.csv").exists()

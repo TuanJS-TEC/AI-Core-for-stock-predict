@@ -21,3 +21,8 @@ def test_pipeline_prices_cover_nlp_copy():
     new = load_prices(["FPT"]).set_index("date")["close"]
     cmp = old.set_index("date")["close"].reindex(new.index).dropna()
     assert len(cmp) > 1400 and (cmp == new.loc[cmp.index]).all()
+
+
+def test_no_corporate_action_seam():
+    from nlp_module.forecast.trial_forecast import check_prices
+    assert check_prices(load_prices())["n_big_moves"] == 0

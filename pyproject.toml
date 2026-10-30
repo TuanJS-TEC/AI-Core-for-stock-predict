@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+# two top-level packages live in the sibling modules: `src` (Pipeline_V1.2) and `nlp_module` (NLP_Module)
+pythonpath = [".", "Pipeline_V1.2", "NLP_Module"]
+testpaths = ["tests"]

@@ -1,0 +1,7 @@
+NLP_Module/
+Pipeline_V1.2/stock/
+Pipeline_V1.2/outputs/
+.finhay_key
+*.log
+.pytest_cache/
+__pycache__/

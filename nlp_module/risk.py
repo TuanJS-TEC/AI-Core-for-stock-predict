@@ -13,11 +13,16 @@ def _p(s):
     return re.compile(r"\b(?:" + s + r")\b", _F)
 
 
+_CUE = r"(?:vay|nợ|nghĩa\s+vụ|công\s+ty\s+con|liên\s+kết|trái\s+phiếu)"
+_G = r"(?<!thư\s)(?<!nhận\s)\bbảo\s+lãnh\b(?!\s+(?:phát\s+hành|thanh\s+toán|thực\s+hiện|dự\s+thầu))"
+
 FLAGS = {
-    # guaranteeing someone's debt; underwriting ("bảo lãnh phát hành") is routine and excluded
-    "guarantee": re.compile(r"\b(?<!nhận\s)bảo\s+lãnh\b(?!\s+phát\s+hành)", _F),
+    # guaranteeing someone's debt: needs a borrower/debt cue in the same sentence; routine bank products
+    # (thư bảo lãnh, bảo lãnh phát hành/thanh toán/dự thầu) carry none or are excluded
+    "guarantee": re.compile(
+        rf"{_G}(?=[^.;]{{0,60}}\b{_CUE}\b)|\b{_CUE}\b[^.;]{{0,40}}{_G}", _F),
     "seizure": _p(r"kê\s+biên|phong\s+(?:tỏa|toả)|phát\s+mại|siết\s+nợ"),
-    "prosecution": _p(r"khởi\s+tố|truy\s+tố|(?:bắt\s+)?tạm\s+giam|bị\s+bắt|điều\s+tra\s+hình\s+sự"),
+    "prosecution": _p(r"khởi\s+tố|truy\s+tố|(?:bắt\s+)?tạm\s+giam|bị\s+bắt(?!\s+buộc)|điều\s+tra\s+hình\s+sự"),
     "sanction": re.compile(r"\b(?:xử\s+phạt|bị\s+phạt|đình\s+chỉ\s+giao\s+dịch|hạn\s+chế\s+giao\s+dịch)\b|\bphạt\s+\d", _F),
     "bond_default": re.compile(
         r"\b(?:chậm|trễ|không)\s+(?:thanh\s+toán|trả)\b[^.;]{0,30}trái\s+phiếu"

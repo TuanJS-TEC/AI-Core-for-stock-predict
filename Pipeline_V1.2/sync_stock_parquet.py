@@ -76,6 +76,18 @@ def clean_types(df: pd.DataFrame) -> pd.DataFrame:
     return df[list(C.RAW_COLS)]
 
 
+VN_TZ = "Asia/Ho_Chi_Minh"
+MARKET_CLOSE_HOUR_VN = 15
+
+
+def drop_open_session(df: pd.DataFrame, now: pd.Timestamp) -> pd.DataFrame:
+    """Bỏ dòng của ngày hôm nay (giờ Việt Nam) nếu `now` còn trước 15:00: phiên chưa chốt, giá/khối lượng còn đổi."""
+    now = now.tz_convert(VN_TZ) if now.tzinfo is not None else now        # ponytail: now không múi giờ coi như giờ VN
+    if now.hour >= MARKET_CLOSE_HOUR_VN or df.empty:
+        return df
+    return df[wall_clock(df[C.TIME_COL]).dt.normalize() != now.normalize().tz_localize(None)].reset_index(drop=True)
+
+
 def fetch_latest_ohlcv(symbol: str, start_date: str, end_date: str, max_retries: int = C.SYNC_MAX_RETRIES) -> pd.DataFrame:
     """
     Lấy dữ liệu OHLCV từ thư viện vnstock cho một mã chứng khoán trong khoảng [start_date, end_date].
@@ -90,7 +102,7 @@ def fetch_latest_ohlcv(symbol: str, start_date: str, end_date: str, max_retries:
             quote = Quote(symbol=symbol)
             df = quote.history(start=start_date, end=end_date, interval=C.SYNC_INTERVAL)
             if df is not None and not df.empty:
-                return df
+                return drop_open_session(df, pd.Timestamp.now(tz=VN_TZ))
             else:
                 return pd.DataFrame()
         except Exception as e:
@@ -120,7 +132,8 @@ def basis_changed(stored: pd.DataFrame, merged: pd.DataFrame) -> bool:
 
 
 def process_stock_file(csv_path: str, output_dir: str, update_csv: bool = True,
-                    delay_between_calls: float = C.SYNC_API_DELAY, fetch: bool = True):
+                    delay_between_calls: float = C.SYNC_API_DELAY, fetch: bool = True,
+                    full_refresh: bool = False):
     """
     Xử lý một file CSV của mã chứng khoán:
     1. Đọc dữ liệu lịch sử từ CSV.
@@ -169,7 +182,13 @@ def process_stock_file(csv_path: str, output_dir: str, update_csv: bool = True,
 
     # 2. Lấy dữ liệu mới nhất từ vnstock
     df_new = pd.DataFrame()
-    if fetch and start_date_str <= end_date_str:
+    if fetch and full_refresh:
+        full = fetch_latest_ohlcv(symbol, start_date=df_csv[C.TIME_COL].min().strftime("%Y-%m-%d"), end_date=end_date_str)
+        time.sleep(delay_between_calls)
+        if full is not None and not full.empty:
+            logger.warning(f"[{symbol}] tải lại toàn bộ lịch sử (--full-refresh)")
+            df_new = full
+    elif fetch and start_date_str <= end_date_str:
         logger.info(f"[{symbol}] Gọi vnstock cập nhật từ {start_date_str} đến {end_date_str}...")
         df_new = fetch_latest_ohlcv(symbol, start_date=start_date_str, end_date=end_date_str)
         time.sleep(delay_between_calls)  # Tránh vượt quá giới hạn lượt gọi API
@@ -177,8 +196,8 @@ def process_stock_file(csv_path: str, output_dir: str, update_csv: bool = True,
     # 3. Hợp nhất dữ liệu: ghép rồi lọc trùng theo ngày (phiên trùng ưu tiên bản ghi mới nhất từ vnstock)
     if df_new is not None and not df_new.empty:
         df_new = normalize_sessions(clean_types(df_new))      # cùng kiểu thời gian (UTC) với df_csv trước khi ghép
-        df_merged = normalize_sessions(pd.concat([df_csv, df_new], ignore_index=True))
-        if basis_changed(df_csv, df_merged):
+        df_merged = normalize_sessions(df_new if full_refresh else pd.concat([df_csv, df_new], ignore_index=True))
+        if not full_refresh and basis_changed(df_csv, df_merged):
             full = fetch_latest_ohlcv(symbol, start_date=df_csv[C.TIME_COL].min().strftime("%Y-%m-%d"), end_date=end_date_str)
             if full is not None and not full.empty:
                 logger.warning(f"[{symbol}] chuẩn điều chỉnh đổi, tải lại toàn bộ lịch sử")
@@ -257,6 +276,14 @@ def main(argv=None):
     )
 
     parser.add_argument(
+        "--full-refresh",
+        nargs="+",
+        default=[],
+        metavar="SYM",
+        help="Các mã tải lại toàn bộ lịch sử từ ngày đầu đã lưu và thay thế dữ liệu cũ (ví dụ sau khi đổi chuẩn điều chỉnh giá)"
+    )
+
+    parser.add_argument(
         "--no-fetch",
         action="store_true",
         help="Không gọi vnstock, chỉ chuẩn hóa thời gian và lọc trùng dữ liệu đang có"
@@ -297,7 +324,8 @@ def main(argv=None):
             output_dir=stock_dir,
             update_csv=args.update_csv,
             delay_between_calls=args.delay,
-            fetch=not args.no_fetch
+            fetch=not args.no_fetch,
+            full_refresh=os.path.basename(csv_file).split("_")[0].upper() in {x.upper() for x in args.full_refresh}
         )
     elapsed_time = time.time() - start_total_time
     logger.info(f"Hoàn thành toàn bộ {len(csv_files)} mã chứng khoán trong {elapsed_time:.1f} giây.")

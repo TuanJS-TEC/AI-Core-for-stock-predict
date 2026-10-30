@@ -122,3 +122,42 @@ def test_empty_fetch_keeps_data(tmp_path, monkeypatch):
     calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: pd.DataFrame())
     assert len(calls) == 1
     assert list(pq.close) == [33.8, 33.55]
+
+
+def _run_full(tmp_path, monkeypatch, responder):
+    stored = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00", "2026-10-28 07:00:00"], [33.8, 33.55, 22.35])
+    csv = tmp_path / "AAA_stock.csv"
+    stored.to_csv(csv, index=False)
+    calls = []
+
+    def fake(symbol, start_date, end_date, max_retries=3):
+        calls.append(start_date)
+        return responder()
+    monkeypatch.setattr(S, "fetch_latest_ohlcv", fake)
+    S.process_stock_file(str(csv), str(tmp_path), delay_between_calls=0, full_refresh=True)
+    return calls, pd.read_parquet(tmp_path / C.STOCK_FILE.format(ticker="AAA"))
+
+
+def test_full_refresh_replaces_history(tmp_path, monkeypatch):
+    full = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00", "2026-10-28 07:00:00"], [22.55, 22.38, 22.35])
+    calls, pq = _run_full(tmp_path, monkeypatch, lambda: full)
+    assert calls == ["2026-10-26"]                                # one fetch, from the first stored day
+    assert list(pq.close) == [22.55, 22.38, 22.35]
+
+
+def test_full_refresh_empty_keeps_data(tmp_path, monkeypatch):
+    calls, pq = _run_full(tmp_path, monkeypatch, lambda: pd.DataFrame())
+    assert len(calls) == 1
+    assert list(pq.close) == [33.8, 33.55, 22.35]
+
+
+def test_drop_open_session_before_close():
+    df = frame(["2026-10-29 07:00:00", "2026-10-30 07:00:00"], [1.0, 2.0])
+    out = S.drop_open_session(df, pd.Timestamp("2026-10-30 09:45", tz="Asia/Ho_Chi_Minh"))
+    assert list(out.close) == [1.0]
+
+
+def test_drop_open_session_after_close():
+    df = frame(["2026-10-29 07:00:00", "2026-10-30 07:00:00"], [1.0, 2.0])
+    out = S.drop_open_session(df, pd.Timestamp("2026-10-30 15:00", tz="Asia/Ho_Chi_Minh"))
+    assert list(out.close) == [1.0, 2.0]

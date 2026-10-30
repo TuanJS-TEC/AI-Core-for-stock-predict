@@ -192,6 +192,29 @@ def db_vol_forecast(version: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
+def db_fusion_decision() -> pd.DataFrame:
+    """Newest fusion_decision row per (symbol, h), written by `python -m ai_core.live`. Read-only; empty if table missing."""
+    import sqlite3
+    con = sqlite3.connect(f"file:{DATA_DIR / 'nlp.db'}?mode=ro", uri=True)
+    try:
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE name='fusion_decision'").fetchone():
+            return pd.DataFrame()
+        df = pd.read_sql_query(
+            "SELECT * FROM fusion_decision WHERE base_date=(SELECT MAX(base_date) FROM fusion_decision f "
+            "WHERE f.symbol=fusion_decision.symbol AND f.h=fusion_decision.h)", con)
+    finally:
+        con.close()
+    return df.sort_values("created_at", ascending=False).drop_duplicates(["symbol", "h"]).sort_values(["symbol", "h"])
+
+
+@st.cache_data(ttl=300)
+def latest_price_date():
+    """Newest session in the live price parquet files (data/stock -> Pipeline_V1.2/stock); None if unreadable."""
+    ds = [pd.read_parquet(f, columns=["time"])["time"].max() for f in (DATA_DIR / "stock").glob("*_stock.parquet")]
+    return max(ds).tz_localize(None).normalize() if ds else None
+
+
+@st.cache_data(ttl=300)
 def vol_report() -> dict:
     import json
     f = ROOT / volcast.REPORT
@@ -373,9 +396,9 @@ with st.sidebar:
 
 
 # ── tabs ─────────────────────────────────────────────────────────────────────
-tab_stock, tab_price, tab_vol, tab_3d, tab_play, tab_explore, tab_whatif, tab_calib = st.tabs(
+tab_stock, tab_price, tab_vol, tab_3d, tab_play, tab_explore, tab_whatif, tab_calib, tab_board = st.tabs(
     ["Theo mã CK", "Sentiment vs Giá SSI", "Dự báo biến động", "Toàn cảnh 3D", "Playground",
-     "Dataset Explorer", "What-if", "Calibration"])
+     "Dataset Explorer", "What-if", "Calibration", "Bảng quyết định"])
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1251,3 +1274,56 @@ with tab_3d:
                          min_value=-1, max_value=1, format="%+.3f")})
         st.caption("Sắp theo sentiment trung bình (cao → thấp). Sentiment đo **tin nói gì về công ty**, "
                    "không phải dự báo giá.")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# DECISION BOARD (reads fusion_decision; writing is `python -m ai_core.live`, from live_update.sh at 15:00-16:00)
+# ════════════════════════════════════════════════════════════════════════════
+with tab_board:
+    from nlp_module.risk import risk_flags
+    import json
+    st.header("Bảng quyết định")
+    st.caption("Quyết định mới nhất cho mỗi mã và kỳ T+h. Hiện chưa có model hướng đi (NO-GO) nên bảng chỉ có "
+               "**NO_TRADE** hoặc **DATA_INVALID** — không phải tín hiệu mua/bán. Volcast chỉ nói biên độ mạnh/yếu.")
+    _fd = db_fusion_decision()
+    if _fd.empty:
+        st.info("Chưa có quyết định (bảng `fusion_decision` còn rỗng). Chạy:\n\n"
+                "```\ncd .. && NLP_Module/.venv/bin/python -m ai_core.live\n```")
+    else:
+        _pd = latest_price_date()
+        _bd = pd.Timestamp(_fd["base_date"].max())
+        if _pd is not None and _bd < _pd:
+            st.warning(f"Quyết định mới nhất thuộc phiên {_bd:%d/%m/%Y}, cũ hơn giá mới nhất ({_pd:%d/%m/%Y}). "
+                       "`ai_core.live` chưa chạy sau lần đồng bộ giá gần nhất.")
+        _bad = _fd[_fd["decision"] == "DATA_INVALID"]
+        if not _bad.empty:
+            st.error(f"{_bad['symbol'].nunique()} mã có DATA_INVALID, dữ liệu không đủ tin cậy: "
+                     + ", ".join(f"{s} ({r})" for s, r in _bad.drop_duplicates("symbol")[["symbol", "reason"]].itertuples(index=False)))
+        _lbl = {"strong": "Mạnh", "weak": "Yếu"}
+        _show = pd.DataFrame({
+            "Mã": _fd["symbol"], "Kỳ": "T+" + _fd["h"].astype(str), "Phiên căn cứ": _fd["base_date"],
+            "Quyết định": _fd["decision"], "Lý do": _fd["reason"],
+            "Volcast": [_lbl.get(c, "—") for c in _fd["call"]], "p_strong": _fd["p_strong"],
+            "Có tin": _fd["has_news"].astype(bool), "Sentiment 24h": _fd["sentiment_mean_24h"],
+            "Cờ rủi ro": [", ".join(json.loads(f)) or "—" for f in _fd["risk_flags"]]})
+        st.dataframe(_show, hide_index=True, width="stretch",
+                     column_config={"p_strong": st.column_config.NumberColumn(format="%.2f"),
+                                    "Sentiment 24h": st.column_config.NumberColumn(format="%+.3f")})
+        st.caption("Volcast \"—\" = chưa đủ tự tin để nhận định (hoặc DATA_INVALID, hoặc mã ngoài danh sách volcast). "
+                   "Sentiment trống = không có tin trong 24 giờ.")
+
+        _syms = sorted(_fd["symbol"].unique())
+        _s = st.selectbox("Xem passage 72 giờ của mã", _syms, key="board_sym")
+        _cut = pd.Timestamp(_fd.loc[_fd["symbol"] == _s, "base_date"].max() + " 08:00", tz="UTC")   # HOSE close = 08:00 UTC
+        _r = db_results("baseline-tfidf-lr-v1")
+        _r = _r[(_r["symbol"] == _s) & (_r["published_at"] > _cut - pd.Timedelta(hours=72)) & (_r["published_at"] <= _cut)]
+        if _r.empty:
+            st.info(f"{_s}: không có passage nào trong 72 giờ trước phiên căn cứ.")
+        else:
+            _r = _r.assign(**{"Cờ rủi ro": [", ".join(risk_flags(t)) or "—" for t in _r["passage_text"]]})   # recomputed, not stored
+            st.dataframe(_r[["published_at", "title", "relation", "score", "Cờ rủi ro", "passage_text"]].rename(columns={
+                             "published_at": "Đăng lúc", "title": "Tiêu đề", "relation": "Quan hệ", "score": "Điểm", "passage_text": "Passage"}),
+                         hide_index=True, width="stretch",
+                         column_config={"Điểm": st.column_config.NumberColumn(format="%+.3f")})
+            st.caption("Cờ rủi ro dò theo từ khoá trong passage (`risk_flags`), không phải đầu ra của model. "
+                       "`relation = market` không tính vào sentiment.")

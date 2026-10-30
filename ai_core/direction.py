@@ -90,15 +90,23 @@ def boot_ci(daily, rng) -> tuple[float, float]:
     s, k = daily.s.to_numpy(), daily.k.to_numpy()
     stats = [s[i].sum() / k[i].sum() for i in block_bootstrap_dates(daily.index.to_numpy(), PC.BOOTSTRAP_BLOCK,
                                                                    PC.BOOTSTRAP_N, rng) if k[i].sum()]
+    if not stats:   # no resample holds a trade
+        return float("nan"), float("nan")
     a = (1 - PC.CI_LEVEL) / 2
     return float(np.quantile(stats, a)), float(np.quantile(stats, 1 - a))
 
 
+def sleeve_turnover(w, h) -> float:
+    """w: date x symbol equal-weight target of each day's LONG trades. The book holds h+1 sleeves of 1/(h+1) capital;
+    day t buys w_t's sleeve and sells w_{t-h-1}'s (an empty book before the first test day). Mean one-way turnover."""
+    return float((0.5 * (w - w.shift(h + 1, fill_value=0.0)).abs().sum(axis=1) / (h + 1)).mean())
+
+
 def run_fold(tr, va, trva, te, h, rng) -> dict:
     """Select on val, refit the pick on train+val, score test once. net = mean(r_trade - COST) per LONG trade, net_ex
-    the same on r_ex. e0_prior (E0) = net of going LONG on every test row. turnover and max_dd are of the daily
-    equal-weight portfolio of that day's LONG trades; a trade spans h+1 sessions, so h+1 staggered sleeves each hold
-    1/(h+1) of capital. A fold without a pick or without test trades has NaN metrics (go() counts it as a loss)."""
+    the same on r_ex. e0_prior (E0) = net of going LONG on every test row. turnover and max_dd are of one portfolio:
+    each day's LONG trades equal-weighted into a sleeve; a trade spans h+1 sessions, so h+1 staggered sleeves each
+    hold 1/(h+1) of capital. A fold without a pick or without test trades has NaN metrics (go() counts it as a loss)."""
     sel = select_on_val(tr, va, h)
     te = te.assign(net=te[f"r_trade{h}"] - C.COST, net_ex=te[f"r_ex{h}"] - C.COST)
     nan = float("nan")
@@ -120,7 +128,7 @@ def run_fold(tr, va, trva, te, h, rng) -> dict:
     return {**out, "n": n, "hit": float((t.net > 0).mean()), "net": float(t.net.mean()), "net_ex": float(t.net_ex.mean()),
             "ci_lo": lo, "ci_hi": hi,
             "rand_median": float(np.median([all_net[rng.choice(len(te), n, replace=False)].mean() for _ in range(N_RAND)])),
-            "turnover": float(0.5 * w.diff().abs().sum(axis=1).iloc[1:].mean()),
+            "turnover": sleeve_turnover(w, h),
             "max_dd": float((np.maximum.accumulate(eq) - eq).max()), "daily": daily}
 
 

@@ -3,7 +3,8 @@ import pandas as pd
 import pytest
 
 from ai_core import config as C
-from ai_core.direction import FEATS, add_labels, build_frame, folds, go, long_mask, run_fold, select_on_val
+from ai_core.direction import (FEATS, add_labels, boot_ci, build_frame, folds, go, long_mask, run_fold, select_on_val,
+                               sleeve_turnover)
 
 N, WARM = 40, 20
 
@@ -126,3 +127,15 @@ def test_run_fold_keys():
     assert r["kind"] is not None and r["n"] > 0 and r["ci_lo"] <= r["net_ex"] <= r["ci_hi"]
     assert 0 <= r["hit"] <= 1 and r["max_dd"] >= 0 and 0 <= r["turnover"] <= 1
     assert r["e0_prior"] == pytest.approx((te.r_trade2 - C.COST).mean())
+
+
+def test_sleeve_turnover_by_hand():
+    # one symbol LONG on day 1 only, h=2: its sleeve (1/3 of capital) is bought on day 1 and sold on day 4
+    w = pd.DataFrame({"A": [0.0, 1.0, 0.0, 0.0, 0.0]}, index=pd.bdate_range("2026-07-01", periods=5))
+    assert sleeve_turnover(w, 2) == pytest.approx((0.5 / 3 + 0.5 / 3) / 5)       # = 1/15
+
+
+def test_boot_ci_without_trades_is_nan():
+    daily = pd.DataFrame({"s": 0.0, "k": 0}, index=pd.bdate_range("2026-07-01", periods=30))
+    lo, hi = boot_ci(daily, np.random.default_rng(0))
+    assert np.isnan(lo) and np.isnan(hi)

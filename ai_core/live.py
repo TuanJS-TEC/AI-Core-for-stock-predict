@@ -2,8 +2,15 @@
 
 Direction was NO-GO (Task 10), so the board only ever says NO_TRADE or DATA_INVALID; p_up/p_down/margin stay NULL.
 Run: `NLP_Module/.venv/bin/python -m ai_core.live` (after the 15:20 price sync).
-From 15:00 until the sync lands, today's session is due but absent: rows are written MISSING_SESSION and are
-overwritten by later runs (INSERT OR REPLACE) -- fail-closed by design."""
+Write rules (primary key = symbol, base_date, h, version):
+- NO_TRADE and SEAM rows use INSERT OR REPLACE: they describe the data of that base_date itself, so a rerun
+  may legitimately refresh them.
+- MISSING_SESSION rows use INSERT OR IGNORE: the status says "the data is older than due", not that base_date's own
+  decision was wrong. From 15:00 until the 15:20 sync, hist still ends on yesterday, so a run would otherwise
+  overwrite yesterday's valid row (and its created_at) with DATA_INVALID, permanently, since after the sync the new
+  session is written under a new key. With IGNORE a brand-new key is still recorded as DATA_INVALID (fail-closed),
+  an existing row is kept, and a later valid run for that key replaces the DATA_INVALID row.
+DATA_INVALID rows carry NULL p_strong/call: such a row never displays a signal."""
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -59,11 +66,12 @@ def rows(hist, results, vol, now, symbols=C.UNIVERSE) -> list[tuple]:
         snap = build_snapshot(mine, s, cutoff, "live", NLP_MODEL)
         f, win = snap.features, set(snap.lineage)
         flags = json.dumps(sorted({k for r in mine if r.result_id in win for k in r.risk_flags}))
-        decision, reason = decide(data_status(hist, s, now, hol))
+        status = data_status(hist, s, now, hol)
+        decision, reason = decide(status)
         base = str(base.date())
         for h in C.HORIZONS:
-            ps, call = vol.get((s, base, h), (None, None))
-            note = "" if ps is not None else "; no volcast row" + ("" if s in volcast.SYMBOLS else " (symbol outside volcast.SYMBOLS)")
+            ps, call = (None, None) if status else vol.get((s, base, h), (None, None))   # DATA_INVALID shows no signal
+            note = "" if ps is not None or status else "; no volcast row" + ("" if s in volcast.SYMBOLS else " (symbol outside volcast.SYMBOLS)")
             out.append((s, base, h, decision, None, None, None, ps, call, int(f["has_news"]), f["sentiment_mean_24h"],
                         flags, reason + note, VERSION, t))
     return out
@@ -76,11 +84,12 @@ def main(now: pd.Timestamp | None = None, c=None, hist: pd.DataFrame | None = No
     vol = {(r["symbol"], r["base_date"], r["h"]): (r["p_strong"], r["call"]) for r in
            c.execute("SELECT * FROM vol_forecast WHERE model_version=?", (volcast.VERSION,))}
     out = rows(hist, load_results(c, NLP_MODEL), vol, now)
-    c.executemany("INSERT OR REPLACE INTO fusion_decision VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", out)
+    for verb, keep in (("REPLACE", lambda r: r[12] != "MISSING_SESSION"), ("IGNORE", lambda r: r[12] == "MISSING_SESSION")):
+        c.executemany(f"INSERT OR {verb} INTO fusion_decision VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", [r for r in out if keep(r)])
     c.commit()
     return out
 
 
 if __name__ == "__main__":
     out = main()
-    print(f"fusion_decision: wrote {len(out)} rows ({VERSION})")
+    print(f"fusion_decision: evaluated {len(out)} rows ({VERSION}); MISSING_SESSION rows never replace an existing row")

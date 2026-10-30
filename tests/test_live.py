@@ -114,3 +114,40 @@ def test_main_writes_40_rows_in_memory():
     assert by["VIC", 2]["decision"] == "DATA_INVALID" and by["VIC", 2]["reason"].startswith("SEAM")
     live.main(now=THU_1600, c=c, hist=hist)                              # idempotent: INSERT OR REPLACE
     assert c.execute("SELECT count(*) FROM fusion_decision").fetchone()[0] == 40
+
+
+def _universe(last, **kw):
+    return pd.concat([_hist(last, symbol=s, **kw) for s in C.UNIVERSE])
+
+
+def test_missing_session_run_never_overwrites_valid_row():
+    c, hist = storage.connect(":memory:"), _universe("2026-10-28")           # data ends Wednesday
+    _vol(c, "ACB", "2026-10-28")
+    live.main(now=pd.Timestamp("2026-10-28 16:00", tz=VN), c=c, hist=hist)   # session closed: valid rows
+    c.execute("UPDATE fusion_decision SET created_at='2000-01-01T00:00:00Z'")   # sentinel: a rewrite would change it
+    before = [tuple(r) for r in c.execute("SELECT * FROM fusion_decision ORDER BY symbol, h")]
+    assert len(before) == 40 and {r[3] for r in before} == {"NO_TRADE"}
+    live.main(now=pd.Timestamp("2026-10-29 15:10", tz=VN), c=c, hist=hist)   # Thursday, before the sync: Thu is due
+    assert [tuple(r) for r in c.execute("SELECT * FROM fusion_decision ORDER BY symbol, h")] == before
+
+
+def test_missing_session_new_key_recorded_then_valid_run_replaces_it():
+    c, hist = storage.connect(":memory:"), _universe("2026-10-28")
+    _vol(c, "ACB", "2026-10-28")
+    live.main(now=pd.Timestamp("2026-10-29 15:10", tz=VN), c=c, hist=hist)   # nothing stored yet: fail-closed row is written
+    r = c.execute("SELECT * FROM fusion_decision WHERE symbol='ACB' AND h=2").fetchall()
+    assert len(r) == 1 and r[0]["decision"] == "DATA_INVALID" and r[0]["reason"] == "MISSING_SESSION"
+    live.main(now=pd.Timestamp("2026-10-29 10:00", tz=VN), c=c, hist=hist)   # Thursday not due yet: valid, replaces the row
+    r = c.execute("SELECT * FROM fusion_decision WHERE symbol='ACB' AND h=2").fetchall()
+    assert len(r) == 1 and r[0]["decision"] == "NO_TRADE" and r[0]["p_strong"] == 0.61
+
+
+def test_data_invalid_row_carries_no_signal():
+    c = storage.connect(":memory:")
+    _vol(c, "ACB", "2026-10-28")
+    hist = _universe("2026-10-28").query("symbol != 'ACB'")
+    hist = pd.concat([hist, _hist("2026-10-28", symbol="ACB", rets={5: -0.33})])
+    live.main(now=pd.Timestamp("2026-10-28 16:00", tz=VN), c=c, hist=hist)
+    r = c.execute("SELECT * FROM fusion_decision WHERE symbol='ACB'").fetchall()
+    assert len(r) == 2 and all(x["decision"] == "DATA_INVALID" and x["reason"] == "SEAM" for x in r)
+    assert all(x["p_strong"] is None and x["call"] is None for x in r)

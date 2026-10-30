@@ -163,6 +163,8 @@ SYNC_INTERVAL = "1D"                        # dữ liệu theo phiên
 SYNC_MAX_RETRIES = 3                        # số lần thử lại khi gọi API lỗi
 SYNC_RETRY_BACKOFF = 2.0                    # chờ SYNC_RETRY_BACKOFF · lần_thử giây trước lần thử lại
 SYNC_API_DELAY = 1.0                        # nghỉ (giây) giữa hai lần gọi API để tránh bị chặn
+SYNC_BASIS_TOL = 0.005                      # nghìn đồng; lệch giá đóng cửa quá mức này ở phiên đã lưu = chuẩn điều chỉnh đã đổi
+SYNC_RET_BAND = 0.072                       # |lợi suất ngày| lớn hơn mức này ở phiên mới = nghi đổi chuẩn điều chỉnh
 SESSION_HOUR_UTC = 7                        # mỗi phiên ghi đúng một mốc: ngày + 07:00 UTC (định dạng gốc trong docs/dataset.md)
 
 # =====================================================================================================

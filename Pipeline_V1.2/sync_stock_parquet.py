@@ -102,6 +102,23 @@ def fetch_latest_ohlcv(symbol: str, start_date: str, end_date: str, max_retries:
     return pd.DataFrame()
 
 
+def basis_changed(stored: pd.DataFrame, merged: pd.DataFrame) -> bool:
+    """True nếu chuẩn điều chỉnh giá đã đổi (cổ tức, chia tách...) so với bản đã lưu. Cả hai đã qua normalize_sessions.
+
+    Hai dấu hiệu: (1) phiên đã lưu có giá đóng cửa lệch quá C.SYNC_BASIS_TOL trong merged; (2) bước nhảy
+    |pct_change| > C.SYNC_RET_BAND mà phiên sau mới hơn stored.time.max(). Bước nhảy đã nằm trong lịch sử
+    (phiên bị thiếu thật) không tính lại mỗi ngày.
+    """
+    # ponytail: không phân biệt được bước nhảy do phiên thiếu với corporate action trong lần chạy đầu tiên; chấp nhận một lần tải lại.
+    old = stored.set_index(C.TIME_COL)["close"]
+    new = merged.set_index(C.TIME_COL)["close"]
+    common = old.index.intersection(new.index)
+    if ((new[common] - old[common]).abs() > C.SYNC_BASIS_TOL).any():
+        return True
+    jumps = new.pct_change().abs() > C.SYNC_RET_BAND
+    return bool(jumps[jumps.index > old.index.max()].any())
+
+
 def process_stock_file(csv_path: str, output_dir: str, update_csv: bool = True,
                     delay_between_calls: float = C.SYNC_API_DELAY, fetch: bool = True):
     """
@@ -161,6 +178,13 @@ def process_stock_file(csv_path: str, output_dir: str, update_csv: bool = True,
     if df_new is not None and not df_new.empty:
         df_new = normalize_sessions(clean_types(df_new))      # cùng kiểu thời gian (UTC) với df_csv trước khi ghép
         df_merged = normalize_sessions(pd.concat([df_csv, df_new], ignore_index=True))
+        if basis_changed(df_csv, df_merged):
+            full = fetch_latest_ohlcv(symbol, start_date=df_csv[C.TIME_COL].min().strftime("%Y-%m-%d"), end_date=end_date_str)
+            if full is not None and not full.empty:
+                logger.warning(f"[{symbol}] chuẩn điều chỉnh đổi, tải lại toàn bộ lịch sử")
+                df_merged = normalize_sessions(clean_types(full))
+                if basis_changed(df_merged.iloc[:1], df_merged):
+                    logger.error(f"[{symbol}] sau khi tải lại toàn bộ vẫn còn bước nhảy giá > {C.SYNC_RET_BAND:.1%}, vẫn ghi")
         new_records_count = len(df_merged) - initial_count
         logger.info(f"[{symbol}] Đã cập nhật thêm {new_records_count} bản ghi mới (Tổng: {len(df_merged)} phiên). Phiên mới nhất: {df_merged[C.TIME_COL].max().strftime('%Y-%m-%d')}")
     else:

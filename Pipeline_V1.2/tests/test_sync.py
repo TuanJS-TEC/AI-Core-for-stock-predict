@@ -54,15 +54,71 @@ def test_merge_csv_utc_with_vnstock_ho_chi_minh_times(tmp_path, monkeypatch):
     csv = tmp_path / "AAA_stock.csv"
     frame(["2026-10-21 07:00:00", "2026-10-22 07:00:00", "2026-10-23 07:00:00"], [1.0, 2.0, 3.0]).to_csv(csv, index=False)
     t = pd.to_datetime(["2026-10-23 07:00:00", "2026-10-26 07:00:00"]).tz_localize("Asia/Ho_Chi_Minh")
-    monkeypatch.setattr(S, "fetch_latest_ohlcv", lambda *a, **k: frame(t, [3.5, 4.0]))
+    monkeypatch.setattr(S, "fetch_latest_ohlcv", lambda *a, **k: frame(t, [3.004, 3.1]))   # chồng lấn lệch < SYNC_BASIS_TOL: cùng chuẩn giá
     S.process_stock_file(str(csv), str(tmp_path), update_csv=True, delay_between_calls=0, fetch=True)
     pq = pd.read_parquet(tmp_path / C.STOCK_FILE.format(ticker="AAA"))
     assert [str(d.date()) for d in pq["time"]] == ["2026-10-21", "2026-10-22", "2026-10-23", "2026-10-26"]
     assert (pq["time"].dt.hour == C.SESSION_HOUR_UTC).all()
-    assert pq["close"].tolist() == [1.0, 2.0, 3.5, 4.0]             # phiên trùng lấy bản vnstock
+    assert pq["close"].tolist() == [1.0, 2.0, 3.004, 3.1]             # phiên trùng lấy bản vnstock
 
 
 def test_wall_clock_accepts_mixed_object_column():
     s = pd.Series([pd.Timestamp("2026-10-23 07:00", tz="UTC"), pd.Timestamp("2026-10-26 07:00", tz="Asia/Ho_Chi_Minh"),
                    pd.Timestamp("2026-10-27 00:00")], dtype=object)
     assert [str(v) for v in S.wall_clock(s)] == ["2026-10-23 07:00:00", "2026-10-26 07:00:00", "2026-10-27 00:00:00"]
+
+
+def _run(tmp_path, monkeypatch, stored, responder):
+    """Chạy process_stock_file với fetch giả; trả về (danh sách start_date đã gọi, parquet)."""
+    csv = tmp_path / "AAA_stock.csv"
+    stored.to_csv(csv, index=False)
+    calls = []
+
+    def fake(symbol, start_date, end_date, max_retries=3):
+        calls.append(start_date)
+        return responder(start_date)
+    monkeypatch.setattr(S, "fetch_latest_ohlcv", fake)
+    S.process_stock_file(str(csv), str(tmp_path), delay_between_calls=0)
+    return calls, pd.read_parquet(tmp_path / C.STOCK_FILE.format(ticker="AAA"))
+
+
+def test_overlap_mismatch_triggers_full_refetch(tmp_path, monkeypatch):
+    stored = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00"], [33.8, 33.55])
+    full = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00", "2026-10-28 07:00:00"], [22.55, 22.38, 22.35])
+    calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: full[full.time >= s].reset_index(drop=True))
+    assert calls == ["2026-10-27", "2026-10-26"]                  # incremental, then full from the first stored day
+    assert list(pq.close) == [22.55, 22.38, 22.35]
+
+
+def test_big_move_after_merge_triggers_full_refetch(tmp_path, monkeypatch):
+    # overlap 2026-10-27 matches (33.55) but 10-28 = 22.35 (-33%): the new rows sit on another basis
+    stored = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00"], [33.8, 33.55])
+    inc = frame(["2026-10-27 07:00:00", "2026-10-28 07:00:00"], [33.55, 22.35])
+    full = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00", "2026-10-28 07:00:00"], [22.55, 22.38, 22.35])
+    calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: inc if s == "2026-10-27" else full)
+    assert len(calls) == 2
+    assert list(pq.close) == [22.55, 22.38, 22.35]
+
+
+def test_consistent_update_fetches_once(tmp_path, monkeypatch):
+    stored = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00"], [33.8, 33.55])
+    inc = frame(["2026-10-27 07:00:00", "2026-10-28 07:00:00"], [33.55, 33.9])
+    calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: inc)
+    assert len(calls) == 1
+    assert list(pq.close) == [33.8, 33.55, 33.9]
+
+
+def test_old_gap_does_not_refetch(tmp_path, monkeypatch):
+    # stored history already holds a >RET_BAND jump (missing sessions): not a basis change
+    stored = frame(["2026-10-20 07:00:00", "2026-10-21 07:00:00", "2026-10-22 07:00:00"], [30.0, 33.0, 33.1])
+    inc = frame(["2026-10-22 07:00:00", "2026-10-23 07:00:00"], [33.1, 33.2])
+    calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: inc)
+    assert len(calls) == 1
+    assert list(pq.close) == [30.0, 33.0, 33.1, 33.2]
+
+
+def test_empty_fetch_keeps_data(tmp_path, monkeypatch):
+    stored = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00"], [33.8, 33.55])
+    calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: pd.DataFrame())
+    assert len(calls) == 1
+    assert list(pq.close) == [33.8, 33.55]

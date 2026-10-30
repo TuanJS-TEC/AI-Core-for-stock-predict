@@ -168,7 +168,8 @@ def main(argv=None):
     ap.add_argument("--news3", action="store_true",
                     help="add v3 news features (NEWS3): price+news3, price+text+news3")
     ap.add_argument("--build-prices", action="store_true", help="write --out from --stock-dir, report, and exit")
-    ap.add_argument("--stock-dir", default="data/stock")
+    from .volcast import STOCK_DIR   # late import: volcast imports this module at top level
+    ap.add_argument("--stock-dir", default=str(STOCK_DIR))
     ap.add_argument("--out", default="data/prices.csv")
     ap.add_argument("--symbols", nargs="*", default=UNIVERSE, help="tickers to build (default: UNIVERSE)")
     a = ap.parse_args(argv)

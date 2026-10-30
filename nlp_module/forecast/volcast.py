@@ -6,6 +6,7 @@ import glob
 import json
 import math
 import os
+from pathlib import Path
 
 import joblib
 import numpy as np
@@ -27,12 +28,17 @@ BUNDLE = "data/models/volcast.joblib"
 REPORT = "data/reports/volcast_report.json"
 HORIZONS = (2, 5)
 COLS = ["date", "symbol", "close", "high", "low", "volume"]
+STOCK_DIR = Path(__file__).resolve().parents[3] / "Pipeline_V1.2" / "stock"   # the one canonical price source (the sync keeps it current)
+SYMBOLS = "ACB FPT GAS HPG MBB MSN MWG SSI STB TCB VCB VIC VNM VPB VRE".split()   # live set; new files in STOCK_DIR do not change it
 RET_BAND = 0.072   # exchange daily limit is 7% (+ price rounding); a bigger daily move means a corporate action or a calendar gap
 
 
-def load_history(stock_dir="data/stock"):
+def load_history(stock_dir=STOCK_DIR, symbols=None):
+    """symbols=None reads every *_stock.csv in stock_dir."""
     parts = []
     for p in sorted(glob.glob(os.path.join(stock_dir, "*_stock.csv"))):
+        if symbols is not None and os.path.basename(p).split("_")[0] not in symbols:
+            continue
         d = pd.read_csv(p, parse_dates=["time"])
         d["date"] = d["time"].dt.normalize()
         parts.append(d.assign(symbol=os.path.basename(p).split("_")[0]))
@@ -53,12 +59,12 @@ def live_bars(c):
     return q[COLS + ["ref"]].astype({"close": float, "high": float, "low": float, "volume": float, "ref": float})  # empty table reads as object
 
 
-def bars(c, stock_dir="data/stock"):
+def bars(c, stock_dir=STOCK_DIR, symbols=None):
     """History wins on a shared (symbol, date): it is the vendor's final bar, live is our own last read."""
     # ponytail: sessions missed by both sources (22-23/10 at the seam, 28/10 machine off) are skipped, not reindexed: live
     # ret1 comes from the exchange ref so it stays a one-session return, but rolling windows hold fewer calendar days
     # and the skipped sessions' returns are lost from ret5/ret20/ma20. Upgrade: backfill the bars if a source appears.
-    h, lv = load_history(stock_dir), live_bars(c)
+    h, lv = load_history(stock_dir, symbols), live_bars(c)
     lv = lv[lv.symbol.isin(h.symbol.unique())]   # tickers outside the history universe would skew mret*, the label median, predictions
     df = pd.concat([h, lv], ignore_index=True)
     df = df.drop_duplicates(["symbol", "date"], keep="first")
@@ -207,9 +213,12 @@ def _print(w):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="volcast")
     ap.add_argument("cmd", choices=["eval", "train", "predict"])
-    cmd = ap.parse_args(argv).cmd
+    ap.add_argument("--symbols", default="fixed", help="fixed = SYMBOLS, all = every file in STOCK_DIR, or A,B,...")
+    a = ap.parse_args(argv)
+    cmd = a.cmd
+    syms = SYMBOLS if a.symbols == "fixed" else None if a.symbols == "all" else a.symbols.split(",")
     c = storage.connect()
-    df = add_features(bars(c))
+    df = add_features(bars(c, symbols=syms))
     if cmd in ("eval", "train"):
         w = _walks(df)
         _print(w)

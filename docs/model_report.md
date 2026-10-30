@@ -586,6 +586,7 @@ calibrated, not solved. B2 lost (fewer calls, lower accuracy).
 - Sessions missing from both sources (2026-10-22/23 at the seam; 2026-10-28, machine off from 10:00) are skipped, not
   filled: rolling windows then hold fewer calendar days, and the skipped sessions' returns are absent from
   ret5/ret20/ma20. No allowed source serves past daily bars; keeping the machine on through 15:15 avoids new gaps.
+- Prices are read from `Pipeline_V1.2/stock` (`volcast.STOCK_DIR`), the single canonical source; `data/stock` is no longer read. The fitted symbol set is `volcast.SYMBOLS` (15 tickers) unless `--symbols all` is passed.
 - SSI `volume` is normal-matched volume and may exclude put-through trades. This biases `vz` after the seam.
 - Text and HOSE earnings-filing features are not used (no gain). BCTC values are annual and lag up to ~15 months.
 - `data/bctc.parquet` must exist (README); train and predict fail without it rather than silently impute.

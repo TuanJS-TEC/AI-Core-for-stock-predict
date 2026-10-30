@@ -24,6 +24,8 @@ from .walk_forward import FOLDS, _split
 
 FEATS = ["ret1", "ret5", "ret20", "vol10", "vol20", "ma20", "range", "vz", "mret1", "mret5"] + fundamentals.BCTC
 VERSION = "volcast-v2.1"   # v1 = price only; v2 adds BCTC; v2.1 = Wilson-bound gate + purge/seam/sort fixes
+# NOTE 2026-10-30: the bundle retrained 2026-10-30 09:52 has all BCTC features 0 (pandas pivot bug in this env),
+# so it is effectively price-only; see docs/model_report.md, volcast Limitations.
 BUNDLE = "data/models/volcast.joblib"
 REPORT = "data/reports/volcast_report.json"
 HORIZONS = (2, 5)

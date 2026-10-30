@@ -581,6 +581,24 @@ Fold C still lands below 0.65 on test (0.626, 0.620), although both CIs now incl
 calibrated, not solved. B2 lost (fewer calls, lower accuracy).
 
 **Limitations**
+- **2026-10-30: the live bundle is effectively price-only although it is labelled `volcast-v2.1` ("v2 adds BCTC").**
+  Since the retrain of 2026-10-30 09:52 (`data/models/volcast.joblib`) every BCTC feature was 0 in training: in both
+  horizons' LogisticRegression the scaler mean is 0 and the coefficient is exactly 0 for `has_bctc` and all `bc_*`
+  (checked 2026-10-30 on the bundle). Root cause (found by the final review, re-checked here):
+  `vnstock 4.0.9` was installed into the shared NLP venv on 2026-10-29 19:18, and numpy 2.2.6 / pandas 2.3.3 were
+  (re)installed in the same minute (dist-info timestamps 19:18:24-27). On this environment (Python 3.14.4)
+  `pivot_table` and `unstack` corrupt the result's row labels once the result has 32,768 cells or more (verified
+  with synthetic frames of 3 or more rows; a plain groupby is correct): 100x7x46 = 32,200 cells correct, 100x7x47 =
+  32,900 broken (100 tickers come back as 3); 10x1x3,200 correct, 10x1x3,300 broken; 4x1x8,191 correct, 4x1x8,192
+  broken. The values are not checked, only the labels. `fundamentals.annual_wide` therefore returns 4,833 rows whose
+  labels are only AAA (4,213) and AAM (620), with 4,825 duplicate (symbol, year) pairs, so no `volcast.SYMBOLS` ticker
+  matches and `has_bctc` = 0 everywhere. The v2/v2.1 evidence from before 19:18 on 2026-10-29 (BCTC section above,
+  `volcast-v2-prepurge.joblib`) was produced before that install and, per the review, had working BCTC; it was not
+  re-run here. Train and predict use the same loader, and the BCTC coefficients are 0, so a later environment fix
+  does not change this bundle's predictions. Recommended follow-up (owner decision; nothing changed here): pin or
+  upgrade pandas/numpy (or rewrite `annual_wide` with groupby), retrain under a new `VERSION`, and redo the BCTC
+  check (Task 14) under a new pre-registered entry. `Pipeline_V1.2/src/report.py:119` (`bootstrap_ci`) uses
+  `pivot_table` the same way and is exposed once its result reaches that size.
 - Live bars come from SSI, in VND /1000 and **not dividend-adjusted**. Since v2.1, live ret1 is taken from the SSI ref
   price and level features and labels use a price index chained from ret1, so ex-dates no longer leak a jump.
 - Sessions missing from both sources (2026-10-22/23 at the seam; 2026-10-28, machine off from 10:00) are skipped, not
@@ -597,9 +615,11 @@ calibrated, not solved. B2 lost (fewer calls, lower accuracy).
 
 **How to run**
 ```
-python -m nlp_module.forecast.volcast train     # writes data/models/volcast.joblib + data/reports/volcast_report.json
+python -m nlp_module.forecast.volcast train --test-end 2026-10-30   # writes data/models/volcast.joblib + data/reports/volcast_report.json
 python -m nlp_module.forecast.volcast predict   # writes vol_forecast; cron runs it on weekdays 15:00-16:00 via scripts/live_update.sh
 ```
+Pass `--test-end 2026-10-30`: fold C's test window is frozen at that date for the pre-registered comparisons
+(fixed-15 baseline, 20-ticker basket, BCTC check); without it fold C runs to the newest data and is no longer comparable.
 
 ## Baseline v2 (2026-10-29): not shipped, v1 stays live
 
@@ -901,7 +921,7 @@ aggregation, n_perm, seed, symbols or test window). Code: `volcast.bctc_check`, 
 - Known caveats written in advance: `mret1/mret5` and the label median include the held-out symbol in loto; 20 permutations
   with 6 cells give a coarse null (permutation sd reported, no p-value claimed).
 
-### BCTC check result (run 2026-10-30 10:45 +0700, once, 47 s; full output `data/reports/volcast_bctc_check.txt`, local-only)
+### BCTC check result — VACUOUS / INVALID (BCTC features were all zero; see the caveat below) (run 2026-10-30 10:45 +0700, once, 47 s; full output `data/reports/volcast_bctc_check.txt`, local-only)
 
 `python -m nlp_module.forecast.volcast bctc-check --test-end 2026-10-30`, 15 symbols, n_perm=20, seed=0.
 

@@ -29,7 +29,8 @@ python -c "import pandas as pd, vnfinancialdata as vnf; pd.concat([vnf.load(e, s
 python -m nlp_module.forecast.fundamentals --check                         # parsed full-year % vs audited BCTC (vnfinancialdata)
 python -c "from nlp_module.forecast.fundamentals import annual; print(annual(['VCB','FPT']))"   # yearly BCTC (vnfinancialdata, HF, public)
 python -m nlp_module.forecast.trial_forecast --fund ; python -m nlp_module.forecast.walk_forward --skip-nlp --fund   # + earnings features
-python -m nlp_module.forecast.volcast train ; python -m nlp_module.forecast.volcast predict   # T+2/T+5 volatility forecast (confidence-gated) -> tab "Dự báo biến động"
+python -m nlp_module.forecast.volcast train --test-end 2026-10-30 ; python -m nlp_module.forecast.volcast predict   # T+2/T+5 volatility forecast (confidence-gated) -> tab "Dự báo biến động"
+# --test-end 2026-10-30 keeps fold C frozen for the pre-registered comparisons (docs/model_report.md); without it fold C grows with new data
 ```
 
 Model contract: any object with `.version` and `.predict(texts) -> [(p_pos, p_neu, p_neg)]`; swapping models changes

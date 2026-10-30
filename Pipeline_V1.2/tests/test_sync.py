@@ -124,6 +124,41 @@ def test_empty_fetch_keeps_data(tmp_path, monkeypatch):
     assert list(pq.close) == [33.8, 33.55]
 
 
+def test_empty_refetch_keeps_stored_data(tmp_path, monkeypatch, caplog):
+    # basis changed (overlap 10-27 mismatches) but the full refetch comes back empty (rate limit):
+    # the mixed series [33.8, 22.38, 22.35] must not be written; parquet and CSV keep the stored rows
+    stored = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00"], [33.8, 33.55])
+    inc = frame(["2026-10-27 07:00:00", "2026-10-28 07:00:00"], [22.38, 22.35])
+    calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: inc if s == "2026-10-27" else pd.DataFrame())
+    assert calls == ["2026-10-27", "2026-10-26"]
+    assert list(pq.close) == [33.8, 33.55]
+    assert list(pd.read_csv(tmp_path / "AAA_stock.csv").close) == [33.8, 33.55]
+    assert any(r.levelname == "ERROR" for r in caplog.records)
+
+
+def test_truncated_refetch_keeps_stored_data(tmp_path, monkeypatch, caplog):
+    days = ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-26", "2026-10-27"]
+    stored = frame([d + " 07:00:00" for d in days], [33.0, 33.1, 33.2, 33.3, 33.4, 33.8, 33.55])
+    inc = frame(["2026-10-27 07:00:00", "2026-10-28 07:00:00"], [22.38, 22.35])
+    short = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00", "2026-10-28 07:00:00"], [22.55, 22.38, 22.35])
+    calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: inc if s == "2026-10-27" else short)
+    assert len(calls) == 2
+    assert list(pq.close) == list(stored.close)
+    assert list(pd.read_csv(tmp_path / "AAA_stock.csv").close) == list(stored.close)
+    assert any(r.levelname == "ERROR" for r in caplog.records)
+
+
+def test_refetch_sleeps_before_next_call(tmp_path, monkeypatch):
+    slept = []
+    monkeypatch.setattr(S.time, "sleep", slept.append)
+    csv = tmp_path / "AAA_stock.csv"
+    frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00"], [33.8, 33.55]).to_csv(csv, index=False)
+    full = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00", "2026-10-28 07:00:00"], [22.55, 22.38, 22.35])
+    monkeypatch.setattr(S, "fetch_latest_ohlcv", lambda sym, start_date, end_date, **k: full[full.time >= start_date].reset_index(drop=True))
+    S.process_stock_file(str(csv), str(tmp_path), delay_between_calls=0.5)
+    assert slept == [0.5, 0.5]                                     # one pause per vnstock call
+
+
 def _run_full(tmp_path, monkeypatch, responder):
     stored = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00", "2026-10-28 07:00:00"], [33.8, 33.55, 22.35])
     csv = tmp_path / "AAA_stock.csv"
@@ -149,6 +184,19 @@ def test_full_refresh_empty_keeps_data(tmp_path, monkeypatch):
     calls, pq = _run_full(tmp_path, monkeypatch, lambda: pd.DataFrame())
     assert len(calls) == 1
     assert list(pq.close) == [33.8, 33.55, 22.35]
+
+
+def test_full_refresh_truncated_keeps_data(tmp_path, monkeypatch, caplog):
+    # the stored history starts 10-26; a refetch that starts weeks later must not replace it
+    stored = frame(["2026-09-28 07:00:00", "2026-10-26 07:00:00", "2026-10-27 07:00:00"], [33.0, 33.8, 33.55])
+    csv = tmp_path / "AAA_stock.csv"
+    stored.to_csv(csv, index=False)
+    late = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00"], [22.55, 22.38])
+    monkeypatch.setattr(S, "fetch_latest_ohlcv", lambda *a, **k: late)
+    S.process_stock_file(str(csv), str(tmp_path), delay_between_calls=0, full_refresh=True)
+    assert list(pd.read_parquet(tmp_path / C.STOCK_FILE.format(ticker="AAA")).close) == [33.0, 33.8, 33.55]
+    assert list(pd.read_csv(csv).close) == [33.0, 33.8, 33.55]
+    assert any(r.levelname == "ERROR" for r in caplog.records)
 
 
 def test_drop_open_session_before_close():

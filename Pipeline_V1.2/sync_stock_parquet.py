@@ -132,6 +132,29 @@ def basis_changed(stored: pd.DataFrame, merged: pd.DataFrame) -> bool:
     return bool(jumps[jumps.index > old.index.max()].any())
 
 
+REFETCH_START_SLACK = pd.Timedelta(days=5)   # bản tải lại được bắt đầu trễ hơn ngày đầu đã lưu tối đa chừng này
+
+
+def refetch_full(symbol: str, stored: pd.DataFrame, end_date: str, delay: float):
+    """Tải lại toàn bộ lịch sử từ ngày đầu đã lưu; trả bản đã chuẩn hóa, hoặc None nếu không được thay lịch sử.
+
+    Bị từ chối (logger.error) khi rỗng (ví dụ bị giới hạn lượt gọi), bắt đầu trễ hơn ngày đầu đã lưu quá
+    REFETCH_START_SLACK, hoặc kết thúc trước phiên cuối đã lưu: thay bằng bản cụt sẽ mất lịch sử vĩnh viễn.
+    """
+    full = fetch_latest_ohlcv(symbol, start_date=stored[C.TIME_COL].min().strftime("%Y-%m-%d"), end_date=end_date)
+    time.sleep(delay)  # Tránh vượt quá giới hạn lượt gọi API
+    if full is None or full.empty:
+        logger.error(f"[{symbol}] tải lại toàn bộ lịch sử trả về rỗng; giữ nguyên dữ liệu đã lưu")
+        return None
+    full = normalize_sessions(clean_types(full))
+    t, s = full[C.TIME_COL], stored[C.TIME_COL]
+    if t.min() > s.min() + REFETCH_START_SLACK or t.max() < s.max():
+        logger.error(f"[{symbol}] tải lại toàn bộ lịch sử bị cụt ({t.min():%Y-%m-%d}..{t.max():%Y-%m-%d}, "
+                     f"đã lưu {s.min():%Y-%m-%d}..{s.max():%Y-%m-%d}); giữ nguyên dữ liệu đã lưu")
+        return None
+    return full
+
+
 def process_stock_file(csv_path: str, output_dir: str, update_csv: bool = True,
                     delay_between_calls: float = C.SYNC_API_DELAY, fetch: bool = True,
                     full_refresh: bool = False):
@@ -184,9 +207,8 @@ def process_stock_file(csv_path: str, output_dir: str, update_csv: bool = True,
     # 2. Lấy dữ liệu mới nhất từ vnstock
     df_new = pd.DataFrame()
     if fetch and full_refresh:
-        full = fetch_latest_ohlcv(symbol, start_date=df_csv[C.TIME_COL].min().strftime("%Y-%m-%d"), end_date=end_date_str)
-        time.sleep(delay_between_calls)
-        if full is not None and not full.empty:
+        full = refetch_full(symbol, df_csv, end_date_str, delay_between_calls)
+        if full is not None:
             logger.warning(f"[{symbol}] tải lại toàn bộ lịch sử (--full-refresh)")
             df_new = full
     elif fetch and start_date_str <= end_date_str:
@@ -199,10 +221,14 @@ def process_stock_file(csv_path: str, output_dir: str, update_csv: bool = True,
         df_new = normalize_sessions(clean_types(df_new))      # cùng kiểu thời gian (UTC) với df_csv trước khi ghép
         df_merged = normalize_sessions(df_new if full_refresh else pd.concat([df_csv, df_new], ignore_index=True))
         if not full_refresh and basis_changed(df_csv, df_merged):
-            full = fetch_latest_ohlcv(symbol, start_date=df_csv[C.TIME_COL].min().strftime("%Y-%m-%d"), end_date=end_date_str)
-            if full is not None and not full.empty:
-                logger.warning(f"[{symbol}] chuẩn điều chỉnh đổi, tải lại toàn bộ lịch sử")
-                df_merged = normalize_sessions(clean_types(full))
+            logger.warning(f"[{symbol}] chuẩn điều chỉnh đổi, tải lại toàn bộ lịch sử")
+            full = refetch_full(symbol, df_csv, end_date_str, delay_between_calls)
+            if full is None:
+                # Không ghi chuỗi lẫn hai chuẩn giá: ghi lại đúng dữ liệu đã lưu (như khi không có bản ghi mới).
+                # Phiên hôm nay thiếu -> ai_core.live báo DATA_INVALID; mai phiên chồng lấn vẫn lệch nên tự tải lại.
+                df_merged = df_csv
+            else:
+                df_merged = full
                 if basis_changed(df_merged.iloc[:1], df_merged):
                     logger.error(f"[{symbol}] sau khi tải lại toàn bộ vẫn còn bước nhảy giá > {C.SYNC_RET_BAND:.1%}, vẫn ghi")
         new_records_count = len(df_merged) - initial_count

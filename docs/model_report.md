@@ -824,3 +824,39 @@ same number of rows; a cell with no call (no threshold passes the Wilson gate) c
 **mean(test_acc - rule_acc) over the 6 cells = +0.0318** (0.191 / 6, from the 3-decimal values above). Only 3 of 6 cells
 make calls; fold C has a call at h=5 only (0.582, CI95 [0.538, 0.624], so it does not reach 0.65). This is the number
 fusion has to beat.
+
+
+## 20-ticker basket: pre-registered ship rule (written 2026-10-30 10:03:23 +0700, before the eval run)
+
+Rule written before running `volcast eval --symbols all --test-end 2026-10-30`. It is not changed after seeing results
+(no tweaks to the rule, thresholds, seeds or eval). "Not shipped" is a valid outcome.
+
+Ship `volcast.SYMBOLS` = the 20 tickers (`VERSION = "volcast-v2.2"`) only if BOTH hold:
+
+- (a) mean(test_acc - rule_acc) over the 6 cells (h in {2,5} x fold A/B/C; a no-call cell counts 0; diffs taken from
+  the 3-decimal table values, same method as the baseline) >= the fixed-15 baseline of +0.0318.
+- (b) fold C `test_n >= 100` at BOTH h=2 and h=5.
+
+Otherwise keep 15 tickers and `volcast-v2.1`; no train/predict.
+
+### 20-ticker result and decision (2026-10-30)
+
+`python -m nlp_module.forecast.volcast eval --symbols all --test-end 2026-10-30`; full output
+`data/reports/volcast_eval_u20.txt`. The eval prints no ticker list; `load_history(symbols=None)` on the same
+directory returns exactly the 20 tickers (ACB BID CTG FPT GAS HDB HPG MBB MSN MWG NVL SSI STB TCB VCB VHM VIC VNM VPB VRE).
+
+| h | fold | model | test_n | test_acc | rule_acc | diff |
+|---|------|-------|--------|----------|----------|------|
+| 2 | A | none | 0 | - | - | 0 |
+| 2 | B | none | 0 | - | - | 0 |
+| 2 | C | gbm | 133 | 0.609 | 0.556 | +0.053 |
+| 5 | A | none | 0 | - | - | 0 |
+| 5 | B | none | 0 | - | - | 0 |
+| 5 | C | logit | 142 | 0.634 | 0.563 | +0.071 |
+
+- (a) mean(test_acc - rule_acc) = 0.124 / 6 = **+0.0207** < baseline +0.0318: **fails**.
+- (b) fold C test_n = 133 (h=2) and 142 (h=5), both >= 100: passes.
+
+**Decision: not shipped. Kept 15 tickers (`volcast-v2.1`); no train/predict.** The 20-ticker basket gains calls in fold C
+(both horizons) but loses every fold A and B call (the Wilson gate no longer passes), so the mean falls below the
+fixed-15 baseline. Rule and eval were not tweaked after seeing the numbers.

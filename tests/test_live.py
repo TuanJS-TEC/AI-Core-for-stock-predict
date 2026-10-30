@@ -151,3 +151,13 @@ def test_data_invalid_row_carries_no_signal():
     r = c.execute("SELECT * FROM fusion_decision WHERE symbol='ACB'").fetchall()
     assert len(r) == 2 and all(x["decision"] == "DATA_INVALID" and x["reason"] == "SEAM" for x in r)
     assert all(x["p_strong"] is None and x["call"] is None for x in r)
+
+
+def test_board_constants_match_live():
+    """NLP_Module cannot import ai_core, so the board mirrors live's constants by hand: a drift must fail here."""
+    import re
+    from nlp_module import board
+    assert board.FUSION_VERSION == live.VERSION
+    app = (C.NLP / "app.py").read_text(encoding="utf-8")
+    used = re.findall(r'snapshot_passages\(con, symbol, pd\.Timestamp\(cutoff\), "([^"]+)"\)', app)
+    assert used == [live.NLP_MODEL]

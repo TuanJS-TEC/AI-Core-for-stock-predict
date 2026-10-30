@@ -16,5 +16,4 @@ HORIZONS = (2, 5)
 
 TEST_END = "2026-10-30"                        # pre-registered: fold C's test window ends here, frozen before any fusion result
 COST, KAPPA = 0.0045, 0.5
-from nlp_module.forecast import walk_forward   # noqa: E402  (after the sys.path setup above)
-FOLDS = [(n, a, b, c, TEST_END if n == "C" else e) for n, a, b, c, e in walk_forward.FOLDS]
+# FOLDS lives in ai_core.splits: importing nlp_module here would drag NLP's import graph into the HTTP-only finhay cron

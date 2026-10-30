@@ -133,14 +133,19 @@ def _rule_acc(te, n, y):
     return k / int(n), k
 
 
-def walk(df, h, folds=FOLDS):
+def walk(df, h, folds=FOLDS, hold=None):
     """df = add_features output. Per fold: fit on train, pick the threshold on val, refit on train+val, score test once.
-    Strong (y=1) means the ticker's |forward return| beats the day's cross-sectional median."""
+    Strong (y=1) means the ticker's |forward return| beats the day's cross-sectional median.
+    hold=SYMBOL (leave-one-ticker-out): train/val/refit without that symbol, test on that symbol's rows only. Labels and
+    mret* still come from the full cross-section (that is what the live model sees on the day)."""
     y = f"y{h}"
     d = tf.add_targets(df.assign(close=df.adj), h, "absmove").dropna(subset=FEATS)   # adj: labels across ex-dates too
     out = []
     for name, *dates in folds:
         tr, va, trva, te = _split(d, h, *dates)
+        if hold:
+            tr, va, trva = (x[x.symbol != hold] for x in (tr, va, trva))
+            te = te[te.symbol == hold]
         best = None
         for m, mk in MODELS.items():
             pv = mk().fit(tr[FEATS], tr[y]).predict_proba(va[FEATS])[:, 1]
@@ -151,7 +156,7 @@ def walk(df, h, folds=FOLDS):
         row = dict(fold=name, h=h, model=None, threshold=None, val_acc=np.nan, val_cov=np.nan, test_acc=np.nan,
                    test_cov=np.nan, test_n=0, ci_lo=np.nan, ci_hi=np.nan, rule_acc=np.nan,
                    rule_ci_lo=np.nan, rule_ci_hi=np.nan)
-        if best:
+        if best and len(te):
             m, va_acc, t, va_cov = best
             pt = MODELS[m]().fit(trva[FEATS], trva[y]).predict_proba(te[FEATS])[:, 1]
             sel = np.abs(pt - 0.5) >= t
@@ -162,6 +167,35 @@ def walk(df, h, folds=FOLDS):
                        **dict(zip(("ci_lo", "ci_hi"), wilson(k, n))), **dict(zip(("rule_ci_lo", "rule_ci_hi"), wilson(rk, n))))
         out.append(row)
     return out
+
+
+def _perm_feats(feats, syms, rng):
+    """Move each symbol's whole BCTC series (its own available_at dates and values) to another symbol: a random
+    permutation of syms. A symbol sent a series that does not exist (e.g. SSI, not in the dataset) gets none."""
+    return pd.concat([feats[feats.symbol == s].assign(symbol=d) for d, s in zip(syms, rng.permutation(syms))], ignore_index=True)
+
+
+def bctc_check(df, h, folds=FOLDS, n_perm=20, seed=0, bctc=None):
+    """Is BCTC information, or only a ticker-identity code (the 4 ratios are constant within a year per ticker)?
+    df = add_features output. Aggregation (the same for real and every perm, pre-registered in model_report.md): mean of
+    test_acc over the cells of `walk` (3 folds at this h), a cell with no call counting as 0.5 (chance for the
+    median-split label), so a model that abstains is neither rewarded nor punished by a 0 and real/perm stay comparable.
+      real: that mean with the true BCTC.  perm: n_perm of it, permutation i seeded seed+i (the same mapping at every
+      h), the symbol -> BCTC-series map shuffled before add_bctc.  loto: {symbol: test_acc pooled over the cells
+      (hits / calls), NaN with no call} when the symbol is left out of train.
+    Extras (descriptive): real_calls / perm_calls = cells with a call, loto_n = calls per left-out symbol."""
+    feats = fundamentals.bctc_features() if bctc is None else bctc
+    base, syms = df.drop(columns=fundamentals.BCTC), sorted(df.symbol.unique())
+    cell = lambda rows: float(np.mean([0.5 if _num(r["test_acc"]) is None else r["test_acc"] for r in rows]))
+    calls = lambda rows: sum(1 for r in rows if r["test_n"])
+    real = walk(df, h, folds)
+    perms = [walk(fundamentals.add_bctc(base, _perm_feats(feats, syms, np.random.default_rng(seed + i))), h, folds)
+             for i in range(n_perm)]
+    lo = {s: walk(df, h, folds, hold=s) for s in syms}
+    hits = lambda rows: sum(0 if _num(r["test_acc"]) is None else round(r["test_acc"] * r["test_n"]) for r in rows)
+    n = {s: sum(r["test_n"] for r in rows) for s, rows in lo.items()}
+    return dict(real=cell(real), perm=[cell(p) for p in perms], loto={s: hits(lo[s]) / n[s] if n[s] else float("nan") for s in syms},
+                real_calls=calls(real), perm_calls=[calls(p) for p in perms], loto_n=n)
 
 
 def fit_live(df, h, fold_row):
@@ -210,9 +244,28 @@ def _print(w):
               f"{f(r['test_acc'])}    {f(r['test_cov'])}    {r['test_n']:<6} [{f(r['ci_lo'])},{f(r['ci_hi'])}] {f(r['rule_acc'])} [{f(r['rule_ci_lo'])},{f(r['rule_ci_hi'])}]")
 
 
+def _print_bctc(df, folds, n_perm=20, seed=0):
+    """Both horizons, then the pre-registered rule on the 6-cell means (mean of the two h means = mean over 6 cells)."""
+    r = {h: bctc_check(df, h, folds, n_perm, seed) for h in HORIZONS}
+    real = float(np.mean([r[h]["real"] for h in HORIZONS]))
+    perm = np.mean([r[h]["perm"] for h in HORIZONS], axis=0)
+    print(f"symbols={sorted(df.symbol.unique())} test_end={folds[-1][4]} n_perm={n_perm} seed={seed}")
+    for h in HORIZONS:
+        print(f"h={h}: real={r[h]['real']:.4f} (cells with call {r[h]['real_calls']}/{len(folds)}) perm mean={np.mean(r[h]['perm']):.4f} "
+              f"cells with call mean={np.mean(r[h]['perm_calls']):.2f}")
+    print(f"6-cell: real={real:.4f}  perm mean={perm.mean():.4f} sd={perm.std(ddof=1):.4f} min={perm.min():.4f} max={perm.max():.4f}")
+    print("perm (6-cell):", " ".join(f"{p:.4f}" for p in perm))
+    print(f"rule: mean(perm) {perm.mean():.4f} >= real - 0.01 = {real - 0.01:.4f} ? {perm.mean() >= real - 0.01}")
+    print("conclusion:", "BCTC only encodes ticker identity" if perm.mean() >= real - 0.01 else "BCTC beats the permuted control by more than 0.01")
+    print("loto (test_acc pooled over calls / n calls)  symbol  h=2  h=5")
+    f = lambda a, n: "  -  " if not n else f"{a:.3f} ({n})"
+    for s in sorted(r[HORIZONS[0]]["loto"]):
+        print(f"  {s}  " + "  ".join(f(r[h]["loto"][s], r[h]["loto_n"][s]) for h in HORIZONS))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="volcast")
-    ap.add_argument("cmd", choices=["eval", "train", "predict"])
+    ap.add_argument("cmd", choices=["eval", "train", "predict", "bctc-check"])
     ap.add_argument("--symbols", default="fixed", help="fixed = SYMBOLS, all = every file in STOCK_DIR, or A,B,...")
     ap.add_argument("--test-end", help="YYYY-MM-DD, replaces the last date of fold C (freezes the test window)")
     a = ap.parse_args(argv)
@@ -221,6 +274,9 @@ def main(argv=None):
     syms = SYMBOLS if a.symbols == "fixed" else None if a.symbols == "all" else a.symbols.split(",")
     c = storage.connect()
     df = add_features(bars(c, symbols=syms))
+    if cmd == "bctc-check":
+        _print_bctc(df, folds)
+        return
     if cmd in ("eval", "train"):
         w = _walks(df, folds)
         _print(w)

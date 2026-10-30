@@ -222,3 +222,49 @@ def test_pick_threshold_keeps_wilson_bound():   # regression test, passes before
         if t is not None:
             sel = conf >= t
             assert volcast.wilson(ok[sel].sum(), sel.sum())[0] >= 0.65 and sel.sum() >= 50
+
+
+def _long_bars():
+    rng = np.random.default_rng(1)
+    d = pd.bdate_range("2025-10-01", "2026-06-30")
+    df = pd.concat(pd.DataFrame({"date": d, "symbol": s, "close": 20 * np.exp(np.cumsum(rng.normal(0, 0.02, len(d)))),
+                                 "volume": rng.integers(1e5, 1e6, len(d)).astype(float)}) for s in ("AAA", "BBB", "CCC"))
+    return df.assign(high=df.close * 1.01, low=df.close * 0.99).reset_index(drop=True)
+
+
+FEATS_AB = pd.DataFrame({"symbol": ["AAA", "BBB"], "available_at": pd.Timestamp("2025-04-01"),
+                         "bc_np_yoy": [0.1, 0.2], "bc_roe": [0.3, 0.4], "bc_lev": [0.5, 0.6], "bc_size": [7.0, 8.0]})
+
+
+def test_perm_feats_moves_whole_series_between_symbols_and_keeps_dates():
+    f = pd.concat([FEATS_AB, FEATS_AB.assign(available_at=pd.Timestamp("2026-04-01"), bc_roe=[0.9, 0.8])], ignore_index=True)
+    out = volcast._perm_feats(f, ["AAA", "BBB", "CCC"], np.random.default_rng(3))
+    assert sorted(out.available_at) == sorted(f.available_at)   # dates are not shuffled
+    for s, g in out.groupby("symbol"):   # each series is intact: one source symbol's rows with their own dates
+        src = [t for t in ("AAA", "BBB") if (f[f.symbol == t].drop(columns="symbol").reset_index(drop=True)
+               .equals(g.drop(columns="symbol").sort_values("available_at").reset_index(drop=True)))]
+        assert len(src) == 1
+
+
+def test_walk_hold_trains_without_the_symbol_and_tests_only_on_it():
+    df = volcast.add_features(_long_bars(), FEATS_AB)
+    out = volcast.walk(df, 2, folds=[("A", "2025-10-01", "2026-02-01", "2026-03-01", "2026-06-01")], hold="CCC")
+    assert [r["fold"] for r in out] == ["A"] and (out[0]["test_n"] <= (df.symbol == "CCC").sum())
+
+
+def test_bctc_check_keys_and_shapes():
+    df = volcast.add_features(_long_bars(), FEATS_AB)
+    folds = [("A", "2025-10-01", "2026-02-01", "2026-03-01", "2026-06-01")]
+    out = volcast.bctc_check(df, 2, folds, n_perm=2, bctc=FEATS_AB)
+    assert {"real", "perm", "loto"} <= set(out)
+    assert 0 <= out["real"] <= 1 and len(out["perm"]) == 2 and all(0 <= p <= 1 for p in out["perm"])
+    assert set(out["loto"]) == {"AAA", "BBB", "CCC"}
+    assert out["perm"] == volcast.bctc_check(df, 2, folds, n_perm=2, bctc=FEATS_AB)["perm"]   # seeded
+
+
+def test_print_bctc_applies_the_rule(capsys, monkeypatch):
+    df = volcast.add_features(_long_bars(), FEATS_AB)
+    monkeypatch.setattr(volcast.fundamentals, "bctc_features", lambda: FEATS_AB)
+    volcast._print_bctc(df, [("A", "2025-10-01", "2026-02-01", "2026-03-01", "2026-06-01")], n_perm=2)
+    out = capsys.readouterr().out
+    assert "6-cell: real=" in out and "conclusion:" in out and "CCC" in out

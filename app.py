@@ -195,23 +195,34 @@ def db_vol_forecast(version: str) -> pd.DataFrame:
 def db_fusion_decision() -> pd.DataFrame:
     """Newest fusion_decision row per (symbol, h), written by `python -m ai_core.live`. Read-only; empty if table missing."""
     import sqlite3
+    from nlp_module.board import newest_decisions
     con = sqlite3.connect(f"file:{DATA_DIR / 'nlp.db'}?mode=ro", uri=True)
     try:
-        if not con.execute("SELECT 1 FROM sqlite_master WHERE name='fusion_decision'").fetchone():
-            return pd.DataFrame()
-        df = pd.read_sql_query(
-            "SELECT * FROM fusion_decision WHERE base_date=(SELECT MAX(base_date) FROM fusion_decision f "
-            "WHERE f.symbol=fusion_decision.symbol AND f.h=fusion_decision.h)", con)
+        return newest_decisions(con)
     finally:
         con.close()
-    return df.sort_values("created_at", ascending=False).drop_duplicates(["symbol", "h"]).sort_values(["symbol", "h"])
+
+
+@st.cache_data(ttl=300)
+def db_snapshot_passages(symbol: str, cutoff: str) -> pd.DataFrame:
+    """Passages behind one board row (same selection as the live snapshot). Read-only."""
+    import sqlite3
+    from nlp_module.board import snapshot_passages
+    con = sqlite3.connect(f"file:{DATA_DIR / 'nlp.db'}?mode=ro", uri=True)
+    try:
+        return snapshot_passages(con, symbol, pd.Timestamp(cutoff), "baseline-tfidf-lr-v1")
+    finally:
+        con.close()
 
 
 @st.cache_data(ttl=300)
 def latest_price_date():
     """Newest session in the live price parquet files (data/stock -> Pipeline_V1.2/stock); None if unreadable."""
-    ds = [pd.read_parquet(f, columns=["time"])["time"].max() for f in (DATA_DIR / "stock").glob("*_stock.parquet")]
-    return max(ds).tz_localize(None).normalize() if ds else None
+    try:
+        ds = [pd.read_parquet(f, columns=["time"])["time"].max() for f in (DATA_DIR / "stock").glob("*_stock.parquet")]
+        return max(ds).tz_localize(None).normalize() if ds else None
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=300)
@@ -1280,7 +1291,6 @@ with tab_3d:
 # DECISION BOARD (reads fusion_decision; writing is `python -m ai_core.live`, from live_update.sh at 15:00-16:00)
 # ════════════════════════════════════════════════════════════════════════════
 with tab_board:
-    from nlp_module.risk import risk_flags
     import json
     st.header("Bảng quyết định")
     st.caption("Quyết định mới nhất cho mỗi mã và kỳ T+h. Hiện chưa có model hướng đi (NO-GO) nên bảng chỉ có "
@@ -1292,7 +1302,9 @@ with tab_board:
     else:
         _pd = latest_price_date()
         _bd = pd.Timestamp(_fd["base_date"].max())
-        if _pd is not None and _bd < _pd:
+        if _pd is None:
+            st.warning("Không đọc được dữ liệu giá (`data/stock`), nên không so được độ mới của quyết định.")
+        elif _bd < _pd:
             st.warning(f"Quyết định mới nhất thuộc phiên {_bd:%d/%m/%Y}, cũ hơn giá mới nhất ({_pd:%d/%m/%Y}). "
                        "`ai_core.live` chưa chạy sau lần đồng bộ giá gần nhất.")
         _bad = _fd[_fd["decision"] == "DATA_INVALID"]
@@ -1315,15 +1327,17 @@ with tab_board:
         _syms = sorted(_fd["symbol"].unique())
         _s = st.selectbox("Xem passage 72 giờ của mã", _syms, key="board_sym")
         _cut = pd.Timestamp(_fd.loc[_fd["symbol"] == _s, "base_date"].max() + " 08:00", tz="UTC")   # HOSE close = 08:00 UTC
-        _r = db_results("baseline-tfidf-lr-v1")
-        _r = _r[(_r["symbol"] == _s) & (_r["published_at"] > _cut - pd.Timedelta(hours=72)) & (_r["published_at"] <= _cut)]
+        _r = db_snapshot_passages(_s, _cut.isoformat())
         if _r.empty:
-            st.info(f"{_s}: không có passage nào trong 72 giờ trước phiên căn cứ.")
+            st.info(f"{_s}: không có passage nào đưa vào quyết định này (72 giờ trước phiên căn cứ).")
         else:
-            _r = _r.assign(**{"Cờ rủi ro": [", ".join(risk_flags(t)) or "—" for t in _r["passage_text"]]})   # recomputed, not stored
-            st.dataframe(_r[["published_at", "title", "relation", "score", "Cờ rủi ro", "passage_text"]].rename(columns={
-                             "published_at": "Đăng lúc", "title": "Tiêu đề", "relation": "Quan hệ", "score": "Điểm", "passage_text": "Passage"}),
+            _r = _r.assign(**{"Cờ rủi ro": [", ".join(f) or "—" for f in _r["flags"]]})
+            st.dataframe(_r[["processed_at", "published_at", "title", "relation", "score", "Cờ rủi ro", "passage_text"]].rename(columns={
+                             "processed_at": "Xử lý lúc", "published_at": "Đăng lúc", "title": "Tiêu đề", "relation": "Quan hệ",
+                             "score": "Điểm", "passage_text": "Passage"}),
                          hide_index=True, width="stretch",
                          column_config={"Điểm": st.column_config.NumberColumn(format="%+.3f")})
-            st.caption("Cờ rủi ro dò theo từ khoá trong passage (`risk_flags`), không phải đầu ra của model. "
-                       "`relation = market` không tính vào sentiment.")
+        st.caption("Danh sách dùng **đúng cách chọn của snapshot live**: passage đại diện (bỏ bài lặp), `relation` khác `market`, "
+                   "**đã được xử lý** (`processed_at`) trong 72 giờ trước 15:00 phiên căn cứ — không phải theo ngày đăng, "
+                   "nên bài đăng cũ nhưng thu thập muộn vẫn có mặt. Số dòng có thể lệch với hàng trên bảng nếu pipeline đã "
+                   "xử lý thêm bài từ lúc `ai_core.live` chạy. Cờ rủi ro dò theo từ khoá (`risk_flags`), không phải đầu ra model.")

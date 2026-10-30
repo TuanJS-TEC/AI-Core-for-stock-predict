@@ -968,8 +968,7 @@ with tab_price:
                             index=vers_p.index("baseline-tfidf-lr-v1") if "baseline-tfidf-lr-v1" in vers_p else 0,
                             key="price_ver")
     all_syms = sorted(db_results(ver_p)["symbol"].unique())
-    default_syms = [s_ for s_ in ["ACB", "BID", "CTG", "FPT", "HDB", "HPG", "MSN", "MWG",
-                                  "NVL", "STB", "TCB", "VCB", "VHM", "VIC", "VPB"] if s_ in all_syms]
+    default_syms = [s_ for s_ in "ACB BID CTG FPT GAS HDB HPG MBB MSN MWG NVL SSI STB TCB VCB VHM VIC VNM VPB VRE".split() if s_ in all_syms]
     syms_p = tc[1].multiselect("Mã cần so sánh", all_syms, default=default_syms, key="price_syms")
     if tc[2].button("Lấy giá SSI ngay", type="primary", width="stretch"):
         if not syms_p:

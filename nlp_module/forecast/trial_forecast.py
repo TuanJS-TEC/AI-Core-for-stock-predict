@@ -14,7 +14,7 @@ from sklearn.preprocessing import StandardScaler
 from ..contract import build_snapshot
 
 CLOSE_UTC = time(8, 0)   # HOSE close 15:00 Asia/Ho_Chi_Minh = 08:00 UTC; forecast_cutoff = close of day t
-UNIVERSE = "ACB BID CTG FPT HDB HPG MSN MWG NVL STB TCB VCB VHM VIC VPB".split()   # the NLP forecasting universe; app.py keeps its own copy
+UNIVERSE = "ACB BID CTG FPT GAS HDB HPG MBB MSN MWG NVL SSI STB TCB VCB VHM VIC VNM VPB VRE".split()   # the NLP forecasting universe; app.py keeps its own copy
 TEXT = ["has_news", "news_count_24h", "news_count_72h", "sentiment_mean", "sentiment_mean_24h", "uncertain_ratio", "direct_news_ratio", "difficult_ratio"]
 COUNTS = ["news_count_24h", "news_count_72h"]          # absolute levels: drift with corpus growth
 SENT = ["sentiment_mean", "sentiment_mean_24h"]

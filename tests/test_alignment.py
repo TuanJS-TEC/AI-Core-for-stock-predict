@@ -14,13 +14,21 @@ def test_prices_aligned_and_unique():
     assert df.date.dt.tz is None and (df.date == df.date.dt.normalize()).all()
 
 
-def test_pipeline_prices_cover_nlp_copy():
-    """Pipeline's copy is the canonical one: same values as NLP's stale copy on every date NLP has."""
-    old = pd.read_csv(C.NLP / "data/stock/FPT_stock.csv", parse_dates=["time"])
-    old["date"] = old["time"].dt.normalize()
-    new = load_prices(["FPT"]).set_index("date")["close"]
-    cmp = old.set_index("date")["close"].reindex(new.index).dropna()
-    assert len(cmp) > 1400 and (cmp == new.loc[cmp.index]).all()
+def test_volcast_reads_canonical_prices():
+    from nlp_module.forecast import volcast
+    h = volcast.load_history(symbols=volcast.SYMBOLS).set_index(["symbol", "date"]).close.sort_index()
+    p = load_prices().set_index(["symbol", "date"]).close.sort_index()
+    assert set(h.index.get_level_values(0)) == set(volcast.SYMBOLS) and set(C.UNIVERSE) <= set(volcast.SYMBOLS)
+    assert (h.loc[p.index] == p).all()
+
+
+def test_load_history_symbols_filter(tmp_path):
+    from nlp_module.forecast import volcast
+    for s in ("AAA", "BBB"):
+        pd.DataFrame({"time": ["2026-01-02"], "close": [1.0], "high": [1.0], "low": [1.0], "volume": [1]}
+                     ).to_csv(tmp_path / f"{s}_stock.csv", index=False)
+    assert set(volcast.load_history(str(tmp_path), symbols=["AAA"]).symbol) == {"AAA"}
+    assert set(volcast.load_history(str(tmp_path)).symbol) == {"AAA", "BBB"}
 
 
 def test_no_corporate_action_seam():

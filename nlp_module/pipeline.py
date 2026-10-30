@@ -7,6 +7,7 @@ from .contract import ArticleCompanyResult, FEATURE_VERSION, build_snapshot
 from .dedup import assign_clusters
 from .entities import Link
 from .passages import MAX_CHARS, select_passage
+from .risk import risk_flags
 from .sentiment.base import decide
 from .text import split_sentences
 
@@ -91,7 +92,8 @@ def load_results(c, model_version):
         out.append(ArticleCompanyResult(r["result_id"], r["symbol"], r["source"], _utc(r["published_at"]),
                                         _utc(r["processed_at"]), r["relation"], r["p_pos"], r["p_neu"], r["p_neg"],
                                         bool(r["uncertain"]), bool(r["difficult"]),
-                                        bool(r["is_representative"]), r["nlp_model_version"]))
+                                        bool(r["is_representative"]), r["nlp_model_version"],
+                                        tuple(risk_flags(r["passage_text"]))))
     return out
 
 

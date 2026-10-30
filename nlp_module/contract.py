@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from statistics import mean, pstdev
 
-FEATURE_VERSION = "v3"   # v3 adds sentiment_abs_max, sentiment_shock_24h, sentiment_decay
+FEATURE_VERSION = "v4"   # v3 adds sentiment_abs_max, sentiment_shock_24h, sentiment_decay; v4 adds risk_flag_72h
 WINDOW_H = 72   # lookback for sentiment/quality features; news_count_24h/72h are fixed windows
 # ponytail: fixed backtest delay; make it per-source if timestamps prove unreliable
 BACKTEST_DELAY = timedelta(minutes=30)
@@ -28,6 +28,7 @@ class ArticleCompanyResult:
     difficult: bool = False       # weak evidence: another company in the passage, or title-only (no body mention)
     is_representative: bool = True  # one counted article per near-duplicate cluster
     nlp_model_version: str = "baseline-v0"
+    risk_flags: tuple = ()        # event-risk keys from risk.FLAGS found in the passage (keyword, not a model output)
 
 
 @dataclass
@@ -73,6 +74,7 @@ def build_snapshot(results, symbol, cutoff, mode="live", nlp_model_version="base
          # weak evidence so the consumer can discount it, without changing what sentiment_mean has always meant
          "difficult_ratio": sum(r.difficult for r in win) / len(win) if win else None,
          "direct_news_ratio": sum(r.relation == "direct" for r in win) / len(win) if win else None}
+    f["risk_flag_72h"] = sum(bool(r.risk_flags) for r in win)   # 0 (not None) without news: no flagged event
     f["sentiment_mean"], f["sentiment_std"] = sent(win)
     f["sentiment_mean_24h"], _ = sent([r for r in win if age(r) <= timedelta(hours=24)])
     # intensity / shock / recency-weighted (half-life 24h) sentiment, all over non-uncertain results in win

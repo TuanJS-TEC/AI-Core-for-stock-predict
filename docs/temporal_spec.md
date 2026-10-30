@@ -22,6 +22,7 @@
 - Sentiment/quality features (`sentiment_mean`, `sentiment_std`, `sentiment_mean_24h`, `uncertain_ratio`, `direct_news_ratio`, `unique_source_count`, `has_news`) use the last 72h (`WINDOW_H`).
 - `sentiment = p_pos - p_neg`, unweighted mean. Uncertain (abstained) results are excluded from sentiment means and counted in `uncertain_ratio`; they are never treated as neutral.
 - No news => `has_news=false`, counts 0, sentiment/ratios `None`. Imputation is the consumer's explicit choice (the trial forecaster uses 0 together with `has_news`).
+- `risk_flag_72h` (v4): number of results in the 72h window whose passage matches a keyword event-risk flag (`risk.FLAGS`: guarantee, seizure, prosecution, sanction, bond_default). 0 without news. A keyword mention, not a model output.
 - Lineage: `snapshot_lineage` lists the result ids that fed each snapshot.
 
 ## Aggregation unit

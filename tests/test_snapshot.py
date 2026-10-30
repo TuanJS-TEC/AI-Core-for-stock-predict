@@ -73,3 +73,20 @@ class V3Test(unittest.TestCase):
         self.assertIsNone(f["sentiment_abs_max"])
         self.assertIsNone(f["sentiment_decay"])
         self.assertIsNone(f["sentiment_shock_24h"])
+
+
+def _flagged(i, hours_ago, flags=("guarantee",)):
+    t = utc(2026, 10, 20, 9, 0) - timedelta(hours=hours_ago)
+    return ArticleCompanyResult(f"f{i}", "ZZZ", "s", t, t, "direct", 0.2, 0.6, 0.2, risk_flags=flags)
+
+
+class RiskFlagTest(unittest.TestCase):
+    def test_risk_flag_72h_counts_window(self):
+        rs = [_flagged(1, 10), _flagged(2, 100), _flagged(3, 5, ())]   # f2 older than 72h, f3 unflagged
+        f = build_snapshot(rs, "ZZZ", CUTOFF).features
+        self.assertEqual(f["risk_flag_72h"], 1)
+
+    def test_risk_flag_zero_without_news(self):
+        f = build_snapshot([], "GAS", CUTOFF).features
+        self.assertEqual(f["risk_flag_72h"], 0)
+        self.assertFalse(f["has_news"])

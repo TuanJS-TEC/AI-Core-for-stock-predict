@@ -133,13 +133,13 @@ def _rule_acc(te, n, y):
     return k / int(n), k
 
 
-def walk(df, h):
+def walk(df, h, folds=FOLDS):
     """df = add_features output. Per fold: fit on train, pick the threshold on val, refit on train+val, score test once.
     Strong (y=1) means the ticker's |forward return| beats the day's cross-sectional median."""
     y = f"y{h}"
     d = tf.add_targets(df.assign(close=df.adj), h, "absmove").dropna(subset=FEATS)   # adj: labels across ex-dates too
     out = []
-    for name, *dates in FOLDS:
+    for name, *dates in folds:
         tr, va, trva, te = _split(d, h, *dates)
         best = None
         for m, mk in MODELS.items():
@@ -198,8 +198,8 @@ def write_report(rows, path=REPORT):
         json.dump(doc, f, indent=1)
 
 
-def _walks(df):
-    return {h: walk(df, h) for h in HORIZONS}
+def _walks(df, folds=FOLDS):
+    return {h: walk(df, h, folds) for h in HORIZONS}
 
 
 def _print(w):
@@ -214,13 +214,15 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="volcast")
     ap.add_argument("cmd", choices=["eval", "train", "predict"])
     ap.add_argument("--symbols", default="fixed", help="fixed = SYMBOLS, all = every file in STOCK_DIR, or A,B,...")
+    ap.add_argument("--test-end", help="YYYY-MM-DD, replaces the last date of fold C (freezes the test window)")
     a = ap.parse_args(argv)
     cmd = a.cmd
+    folds = FOLDS if not a.test_end else [(*f[:4], a.test_end if f[0] == "C" else f[4]) for f in FOLDS]
     syms = SYMBOLS if a.symbols == "fixed" else None if a.symbols == "all" else a.symbols.split(",")
     c = storage.connect()
     df = add_features(bars(c, symbols=syms))
     if cmd in ("eval", "train"):
-        w = _walks(df)
+        w = _walks(df, folds)
         _print(w)
         if cmd == "train":   # eval only prints: writing the report here would desync it from the live bundle
             write_report([r for h in HORIZONS for r in w[h]])

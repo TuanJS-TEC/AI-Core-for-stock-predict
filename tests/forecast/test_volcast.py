@@ -201,3 +201,24 @@ def test_dividend_seam_ignores_missing_or_zero_ref():
     df.loc[a, "ref"] = 0.0
     out = volcast.add_features(df, NO_BCTC)
     assert out[out.symbol == "AAA"].ret1.iloc[-1] == pytest.approx(-0.3)
+
+
+def test_walk_honours_folds():
+    rng = np.random.default_rng(1)
+    d = pd.bdate_range("2021-09-01", "2026-12-31")
+    df = pd.concat(pd.DataFrame({"date": d, "symbol": s, "close": 20 * np.exp(np.cumsum(rng.normal(0, 0.02, len(d)))),
+                                 "volume": rng.integers(1e5, 1e6, len(d)).astype(float)}) for s in "ABCD")
+    df = df.assign(high=df.close * 1.01, low=df.close * 0.99).reset_index(drop=True)
+    out = volcast.walk(volcast.add_features(df, NO_BCTC), 2, folds=[volcast.FOLDS[0]])
+    assert [r["fold"] for r in out] == ["A"]
+
+
+def test_pick_threshold_keeps_wilson_bound():   # regression test, passes before and after Task 4
+    for seed in range(20):
+        rng = np.random.default_rng(seed)
+        conf = rng.uniform(0, 0.5, 2000)
+        ok = rng.random(2000) < 0.5 + conf
+        t = volcast.pick_threshold(conf, ok)
+        if t is not None:
+            sel = conf >= t
+            assert volcast.wilson(ok[sel].sum(), sel.sum())[0] >= 0.65 and sel.sum() >= 50

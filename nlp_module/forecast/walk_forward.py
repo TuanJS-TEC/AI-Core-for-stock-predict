@@ -50,14 +50,14 @@ def _auc(model, d, cols, h):
     return roc_auc_score(d[f"y{h}"], m.predict_proba(sc.transform(d[cols]))[:, 1])
 
 
-def _split(d, h, train_start, val_start, test_start, test_end):
+def _split(d, h, train_start, val_start, test_start, test_end, purge=None):
     d = d.dropna(subset=PRICE + [f"y{h}"]).sort_values(["date", "symbol"], kind="stable")   # unstable sort reorders same-day rows when unrelated rows are added, which flips model picks
     dates = sorted(d.date.unique())
     pos = lambda t: next(i for i, x in enumerate(dates) if x >= pd.Timestamp(t))
     i0, iv, it = pos(train_start), pos(val_start), pos(test_start)
-    # purge h sessions before each boundary: a label at day i looks h sessions ahead
-    return (d[d.date.isin(dates[i0:iv - h])], d[d.date.isin(dates[iv:max(it - h, iv)])],
-            d[d.date.isin(dates[i0:it - h])], d[(d.date >= dates[it]) & (d.date < pd.Timestamp(test_end))])
+    p = h if purge is None else purge   # purge p sessions before each boundary: a label at day i looks h sessions ahead
+    return (d[d.date.isin(dates[i0:iv - p])], d[d.date.isin(dates[iv:max(it - p, iv)])],
+            d[d.date.isin(dates[i0:it - p])], d[(d.date >= dates[it]) & (d.date < pd.Timestamp(test_end))])
 
 
 def forecast_fold(ds, h, train_start, val_start, test_start, test_end, extras=None):

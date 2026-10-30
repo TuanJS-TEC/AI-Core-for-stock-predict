@@ -804,3 +804,23 @@ articles); that information loss pushes the result toward the null.
 
 Only 10 tickers have prices (adding BID, CTG, HDB, VHM, NVL price files is the user's action; see
 `python -m nlp_module.forecast.trial_forecast --build-prices`).
+
+## Fixed-15 baseline (2026-10-29)
+
+`python -m nlp_module.forecast.volcast eval --test-end 2026-10-30` on the default 15 tickers (`volcast.SYMBOLS`) over
+the repaired Pipeline_V1.2/stock prices; fold C's test window is frozen to end before 2026-10-30 (`TEST_END`). Full
+output: `data/reports/volcast_eval_fixed15.txt`. Test accuracy of the model on its calls vs. the vol10-rank rule on the
+same number of rows; a cell with no call (no threshold passes the Wilson gate) counts as 0.
+
+| h | fold | model | test_n | test_acc | rule_acc | diff |
+|---|------|-------|--------|----------|----------|------|
+| 2 | A | logit | 202 | 0.663 | 0.569 | +0.094 |
+| 2 | B | logit | 160 | 0.706 | 0.625 | +0.081 |
+| 2 | C | none | 0 | - | - | 0 |
+| 5 | A | none | 0 | - | - | 0 |
+| 5 | B | none | 0 | - | - | 0 |
+| 5 | C | logit | 507 | 0.582 | 0.566 | +0.016 |
+
+**mean(test_acc - rule_acc) over the 6 cells = +0.0318** (0.191 / 6, from the 3-decimal values above). Only 3 of 6 cells
+make calls; fold C has a call at h=5 only (0.582, CI95 [0.538, 0.624], so it does not reach 0.65). This is the number
+fusion has to beat.

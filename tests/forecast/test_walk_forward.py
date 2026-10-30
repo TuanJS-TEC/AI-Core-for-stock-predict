@@ -33,3 +33,16 @@ def test_split_order_ignores_rows_outside_the_fold():
     folds = ("2022-01-01", "2022-06-01", "2022-09-01", "2023-01-01")
     for a, b in zip(_split(d.sample(frac=1, random_state=0), 2, *folds), _split(more, 2, *folds)):
         pd.testing.assert_frame_equal(a.reset_index(drop=True), b.reset_index(drop=True))
+
+
+def test_split_purge_overrides_h():
+    rng = np.random.default_rng(0)
+    dates = pd.bdate_range("2022-01-03", periods=400)
+    d = pd.DataFrame({"date": np.repeat(dates, 2), "symbol": ["A", "B"] * 400})
+    for col in PRICE + ["y2"]:
+        d[col] = rng.normal(size=len(d))
+    tr, va, *_ = _split(d, 2, "2022-01-01", "2022-09-01", "2023-01-01", "2023-06-01", purge=3)
+    gap = list(dates).index(va.date.min()) - list(dates).index(tr.date.max())
+    assert gap - 1 == 3   # sessions dropped between last train day and first val day == purge
+    tr0, *_ = _split(d, 2, "2022-01-01", "2022-09-01", "2023-01-01", "2023-06-01")
+    assert list(dates).index(va.date.min()) - list(dates).index(tr0.date.max()) - 1 == 2   # default still h

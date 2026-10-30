@@ -183,7 +183,8 @@ def bctc_check(df, h, folds=FOLDS, n_perm=20, seed=0, bctc=None):
       real: that mean with the true BCTC.  perm: n_perm of it, permutation i seeded seed+i (the same mapping at every
       h), the symbol -> BCTC-series map shuffled before add_bctc.  loto: {symbol: test_acc pooled over the cells
       (hits / calls), NaN with no call} when the symbol is left out of train.
-    Extras (descriptive): real_calls / perm_calls = cells with a call, loto_n = calls per left-out symbol."""
+    Extras (descriptive): real_calls / perm_calls = cells with a call, loto_n = calls per left-out symbol, degenerate =
+    no BCTC feature is live (has_bctc all 0), in which case a permutation changes nothing and the check says nothing."""
     feats = fundamentals.bctc_features() if bctc is None else bctc
     base, syms = df.drop(columns=fundamentals.BCTC), sorted(df.symbol.unique())
     cell = lambda rows: float(np.mean([0.5 if _num(r["test_acc"]) is None else r["test_acc"] for r in rows]))
@@ -195,7 +196,8 @@ def bctc_check(df, h, folds=FOLDS, n_perm=20, seed=0, bctc=None):
     hits = lambda rows: sum(0 if _num(r["test_acc"]) is None else round(r["test_acc"] * r["test_n"]) for r in rows)
     n = {s: sum(r["test_n"] for r in rows) for s, rows in lo.items()}
     return dict(real=cell(real), perm=[cell(p) for p in perms], loto={s: hits(lo[s]) / n[s] if n[s] else float("nan") for s in syms},
-                real_calls=calls(real), perm_calls=[calls(p) for p in perms], loto_n=n)
+                real_calls=calls(real), perm_calls=[calls(p) for p in perms], loto_n=n,
+                degenerate=bool(df["has_bctc"].eq(0).all()))
 
 
 def fit_live(df, h, fold_row):
@@ -244,6 +246,13 @@ def _print(w):
               f"{f(r['test_acc'])}    {f(r['test_cov'])}    {r['test_n']:<6} [{f(r['ci_lo'])},{f(r['ci_hi'])}] {f(r['rule_acc'])} [{f(r['rule_ci_lo'])},{f(r['rule_ci_hi'])}]")
 
 
+def _verdict(real, perm, degenerate):
+    """The registered rule, unless the control is void: constant BCTC (or a perm sd of 0) makes perm == real by construction."""
+    if degenerate or np.std(perm) == 0:
+        return "INVALID: BCTC features constant (has_bctc all 0 or perm sd 0) - conclusion not meaningful"
+    return "BCTC only encodes ticker identity" if np.mean(perm) >= real - 0.01 else "BCTC beats the permuted control by more than 0.01"
+
+
 def _print_bctc(df, folds, n_perm=20, seed=0):
     """Both horizons, then the pre-registered rule on the 6-cell means (mean of the two h means = mean over 6 cells)."""
     r = {h: bctc_check(df, h, folds, n_perm, seed) for h in HORIZONS}
@@ -256,7 +265,7 @@ def _print_bctc(df, folds, n_perm=20, seed=0):
     print(f"6-cell: real={real:.4f}  perm mean={perm.mean():.4f} sd={perm.std(ddof=1):.4f} min={perm.min():.4f} max={perm.max():.4f}")
     print("perm (6-cell):", " ".join(f"{p:.4f}" for p in perm))
     print(f"rule: mean(perm) {perm.mean():.4f} >= real - 0.01 = {real - 0.01:.4f} ? {perm.mean() >= real - 0.01}")
-    print("conclusion:", "BCTC only encodes ticker identity" if perm.mean() >= real - 0.01 else "BCTC beats the permuted control by more than 0.01")
+    print("conclusion:", _verdict(real, perm, any(r[h]["degenerate"] for h in HORIZONS)))
     print("loto (test_acc pooled over calls / n calls)  symbol  h=2  h=5")
     f = lambda a, n: "  -  " if not n else f"{a:.3f} ({n})"
     for s in sorted(r[HORIZONS[0]]["loto"]):

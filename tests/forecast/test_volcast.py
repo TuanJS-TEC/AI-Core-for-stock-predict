@@ -240,26 +240,74 @@ def test_perm_feats_moves_whole_series_between_symbols_and_keeps_dates():
     f = pd.concat([FEATS_AB, FEATS_AB.assign(available_at=pd.Timestamp("2026-04-01"), bc_roe=[0.9, 0.8])], ignore_index=True)
     out = volcast._perm_feats(f, ["AAA", "BBB", "CCC"], np.random.default_rng(3))
     assert sorted(out.available_at) == sorted(f.available_at)   # dates are not shuffled
+    assert out[out.symbol == "AAA"].bc_size.tolist() != f[f.symbol == "AAA"].bc_size.tolist()   # fixed seed 3: a series changed owner
     for s, g in out.groupby("symbol"):   # each series is intact: one source symbol's rows with their own dates
         src = [t for t in ("AAA", "BBB") if (f[f.symbol == t].drop(columns="symbol").reset_index(drop=True)
                .equals(g.drop(columns="symbol").sort_values("available_at").reset_index(drop=True)))]
         assert len(src) == 1
 
 
-def test_walk_hold_trains_without_the_symbol_and_tests_only_on_it():
-    df = volcast.add_features(_long_bars(), FEATS_AB)
-    out = volcast.walk(df, 2, folds=[("A", "2025-10-01", "2026-02-01", "2026-03-01", "2026-06-01")], hold="CCC")
-    assert [r["fold"] for r in out] == ["A"] and (out[0]["test_n"] <= (df.symbol == "CCC").sum())
+VOLS = dict(zip("ABCDE", [0.01, 0.02, 0.03, 0.04, 0.05]))   # planted signal: a ticker's volatility decides |move| vs the median
+FOLD = [("A", "2025-10-01", "2026-02-01", "2026-03-01", "2026-06-01")]
+FEATS_VOL = pd.DataFrame({"symbol": list(VOLS), "available_at": pd.Timestamp("2025-09-01"), "bc_np_yoy": 0.0, "bc_roe": 0.1,
+                          "bc_lev": np.arange(5) / 5, "bc_size": np.arange(5) * 1.0})   # BCTC encodes the vol rank
 
 
-def test_bctc_check_keys_and_shapes():
-    df = volcast.add_features(_long_bars(), FEATS_AB)
-    folds = [("A", "2025-10-01", "2026-02-01", "2026-03-01", "2026-06-01")]
-    out = volcast.bctc_check(df, 2, folds, n_perm=2, bctc=FEATS_AB)
-    assert {"real", "perm", "loto"} <= set(out)
-    assert 0 <= out["real"] <= 1 and len(out["perm"]) == 2 and all(0 <= p <= 1 for p in out["perm"])
-    assert set(out["loto"]) == {"AAA", "BBB", "CCC"}
-    assert out["perm"] == volcast.bctc_check(df, 2, folds, n_perm=2, bctc=FEATS_AB)["perm"]   # seeded
+@pytest.fixture
+def firing(monkeypatch):
+    """Frame where a model fires: pick_threshold is pinned to 0 so every test row is a call (the real gate needs a
+    Wilson bound >= 0.65 over >= 50 calls, which a toy frame does not reach)."""
+    monkeypatch.setattr(volcast, "pick_threshold", lambda *a, **k: 0.0)
+    rng = np.random.default_rng(1)
+    d = pd.bdate_range("2025-10-01", "2026-06-30")
+    df = pd.concat(pd.DataFrame({"date": d, "symbol": s, "close": 20 * np.exp(np.cumsum(rng.normal(0, v, len(d)))),
+                                 "volume": rng.integers(1e5, 1e6, len(d)).astype(float)}) for s, v in VOLS.items())
+    df = df.assign(high=df.close * 1.01, low=df.close * 0.99).reset_index(drop=True)
+    return volcast.add_features(df, FEATS_VOL)
+
+
+def test_walk_hold_trains_without_the_symbol_and_tests_only_on_it(firing, monkeypatch):
+    orig, seen = dict(volcast.MODELS), []   # (kind, symbols in X): X keeps df's index, so it maps back to the symbols
+    def spy(kind):
+        class M:
+            def __init__(self): self.m = orig[kind]()
+            def fit(self, X, y): seen.append(set(firing.symbol[X.index])); self.m.fit(X, y); return self
+            def predict_proba(self, X): seen.append(("test", set(firing.symbol[X.index]))); return self.m.predict_proba(X)
+        return M
+    monkeypatch.setattr(volcast, "MODELS", {k: spy(k) for k in volcast.MODELS})
+    full = volcast.walk(firing, 2, FOLD)[0]
+    assert full["test_n"] > 0 and {"C"} <= set.union(*(x for x in seen if isinstance(x, set)))
+    seen.clear()
+    out = volcast.walk(firing, 2, FOLD, hold="C")[0]
+    fits = [x for x in seen if isinstance(x, set)]
+    assert fits and all("C" not in x for x in fits)   # train, val and the train+val refit never see C
+    assert out["test_n"] > 0 and out["test_n"] < full["test_n"]
+    assert [x[1] for x in seen if isinstance(x, tuple)][-1] == {"C"}   # the final scoring batch is C only
+
+
+def test_bctc_check_scores_perm_and_loto(firing):
+    out = volcast.bctc_check(firing, 2, FOLD, n_perm=2, bctc=FEATS_VOL)
+    assert {"real", "perm", "loto"} <= set(out) and len(out["perm"]) == 2
+    assert out["real_calls"] == 1 and out["perm_calls"] == [1, 1] and not out["degenerate"]
+    assert set(out["loto"]) == set(VOLS) and all(n > 0 and 0 <= out["loto"][s] <= 1 for s, n in out["loto_n"].items())
+    assert out["real"] != 0.5 and all(p != 0.5 for p in out["perm"])      # a model fired
+    assert out["real"] != out["perm"][0]                                    # shuffled BCTC no longer carries the signal
+    assert out["perm"] == volcast.bctc_check(firing, 2, FOLD, n_perm=2, bctc=FEATS_VOL)["perm"]   # seeded
+
+
+def test_bctc_check_flags_degenerate_bctc(firing):
+    assert volcast.bctc_check(firing, 2, FOLD, n_perm=1, bctc=FEATS_VOL)["degenerate"] is False
+    other = FEATS_VOL.assign(symbol=[f"X{i}" for i in range(5)])   # the incident: a BCTC table whose tickers match none of ours
+    dead = volcast.add_features(firing[["date", "symbol", "close", "high", "low", "volume"]], other)
+    d = volcast.bctc_check(dead, 2, FOLD, n_perm=2, bctc=other)
+    assert d["degenerate"] is True and len(set(d["perm"])) == 1 and d["perm"][0] == d["real"]
+
+
+def test_verdict_refuses_a_void_control():
+    assert volcast._verdict(0.6, np.array([0.6, 0.6]), degenerate=False).startswith("INVALID")
+    assert volcast._verdict(0.6, np.array([0.55, 0.6]), degenerate=True).startswith("INVALID")
+    assert volcast._verdict(0.6, np.array([0.59, 0.6]), degenerate=False) == "BCTC only encodes ticker identity"
+    assert volcast._verdict(0.7, np.array([0.55, 0.6]), degenerate=False).startswith("BCTC beats")
 
 
 def test_print_bctc_applies_the_rule(capsys, monkeypatch):
@@ -267,4 +315,4 @@ def test_print_bctc_applies_the_rule(capsys, monkeypatch):
     monkeypatch.setattr(volcast.fundamentals, "bctc_features", lambda: FEATS_AB)
     volcast._print_bctc(df, [("A", "2025-10-01", "2026-02-01", "2026-03-01", "2026-06-01")], n_perm=2)
     out = capsys.readouterr().out
-    assert "6-cell: real=" in out and "conclusion:" in out and "CCC" in out
+    assert "6-cell: real=" in out and "conclusion: INVALID" in out and "CCC" in out   # random walk: no BCTC live, no call

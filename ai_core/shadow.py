@@ -7,6 +7,10 @@ Definitions (same as volcast.walk's test_acc):
 - matured: y{h} exists, i.e. the symbol has at least h sessions in `hist` after base_date (exactly h counts). A call whose
   base_date is not in `hist`, or with fewer future sessions, is pending.
 - the label is trial_forecast.add_targets(df.assign(close=df.adj), h, "absmove") on `hist`, exactly as volcast.walk builds it.
+- label basket: `hist` is filtered to volcast.SYMBOLS (read at call time) inside shadow_report, because the "strong"
+  threshold is the day's cross-sectional median of |forward return| and so depends on which tickers are in the frame.
+  The model is trained/scored on that basket; load_prices() returns all 20 UNIVERSE tickers, so callers need not filter.
+- DATA_INVALID share covers every row on the board (all 20 symbols), not only the volcast ones.
 - shadow_report calls volcast.add_features itself (needs date, symbol, close, high, low, volume); only `adj` matters here,
   so the BCTC join gets an empty table: the report then needs neither data/bctc.parquet nor a working directory."""
 import json
@@ -49,7 +53,7 @@ def shadow_report(c, hist: pd.DataFrame, report_path=REPORT) -> dict:
     n_sessions, n_rows, n_bad = c.execute(
         "SELECT COUNT(DISTINCT base_date), COUNT(*), COALESCE(SUM(decision='DATA_INVALID'), 0) "
         "FROM fusion_decision WHERE version=?", (live.VERSION,)).fetchone()
-    y = _labels(hist)
+    y = _labels(hist[hist["symbol"].isin(volcast.SYMBOLS)])
     ok, pending = {h: [] for h in volcast.HORIZONS}, dict.fromkeys(volcast.HORIZONS, 0)
     for r in c.execute("SELECT symbol, base_date, h, call FROM vol_forecast WHERE model_version=? AND call IS NOT NULL",
                        (volcast.VERSION,)):
@@ -73,7 +77,8 @@ def shadow_report(c, hist: pd.DataFrame, report_path=REPORT) -> dict:
 def render(r: dict) -> str:
     f = lambda v: "n/a" if v is None else f"{v:.3f}"
     out = [f"## Shadow report ({live.VERSION}, volcast {volcast.VERSION}) generated {storage.now()}", "",
-           f"- sessions: {r['n_sessions']}; rows {r['n_rows']}; DATA_INVALID {r['n_data_invalid']} ({f(r['data_invalid_share'])})"]
+           f"- sessions: {r['n_sessions']}; rows {r['n_rows']}; DATA_INVALID {r['n_data_invalid']} ({f(r['data_invalid_share'])}), all board symbols"]
+    out.append(f"- volcast labels use the {len(volcast.SYMBOLS)}-symbol volcast basket (like fold C)")
     if r["n_sessions"] < MIN_SESSIONS:
         out.append(f"- CAVEAT: less than {MIN_SESSIONS} sessions: not enough for the Step-5 decision")
     out.append(f"- live volcast calls: matured {r['n_matured']}, correct {r['n_correct']}, accuracy {f(r['accuracy'])}, pending {r['n_pending']}")

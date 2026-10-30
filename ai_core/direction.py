@@ -2,6 +2,9 @@
 15:00 close), exit is the close h sessions after that: log(close[t+h+1] / open[t+1]). The label is the cross-sectional
 excess of that return against a cost-aware band. Models (E3 logit, E4 gbm) are picked on val, LONG-only, scored once
 on test; go() is the pre-registered GO/NO-GO rule (spec Bước 2)."""
+import time
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
@@ -70,12 +73,12 @@ def long_mask(p_up, p_down, m) -> np.ndarray:
     return np.asarray(p_up) - np.asarray(p_down) >= m
 
 
-def select_on_val(tr, va, h) -> dict:
+def select_on_val(tr, va, h, grid=GRID) -> dict:
     """Fit + calibrate each (kind, C) on train; pick (kind, C, m) with the best mean net per LONG trade on val over
     >= MIN_N trades. Ties keep the first in GRID x MS order. kind=None when nothing reaches MIN_N."""
     net = va[f"r_trade{h}"].to_numpy() - C.COST
     best = {"kind": None, "C": None, "m": None, "val_net": float("nan"), "val_n": 0}
-    for kind, c in GRID:
+    for kind, c in grid:
         up, down = _probs(_fit(tr, h, kind, c), va)
         for m in MS:
             k = long_mask(up, down, m)
@@ -102,12 +105,12 @@ def sleeve_turnover(w, h) -> float:
     return float((0.5 * (w - w.shift(h + 1, fill_value=0.0)).abs().sum(axis=1) / (h + 1)).mean())
 
 
-def run_fold(tr, va, trva, te, h, rng) -> dict:
+def run_fold(tr, va, trva, te, h, rng, grid=GRID) -> dict:
     """Select on val, refit the pick on train+val, score test once. net = mean(r_trade - COST) per LONG trade, net_ex
     the same on r_ex. e0_prior (E0) = net of going LONG on every test row. turnover and max_dd are of one portfolio:
     each day's LONG trades equal-weighted into a sleeve; a trade spans h+1 sessions, so h+1 staggered sleeves each
     hold 1/(h+1) of capital. A fold without a pick or without test trades has NaN metrics (go() counts it as a loss)."""
-    sel = select_on_val(tr, va, h)
+    sel = select_on_val(tr, va, h, grid)
     te = te.assign(net=te[f"r_trade{h}"] - C.COST, net_ex=te[f"r_ex{h}"] - C.COST)
     nan = float("nan")
     out = {**sel, "n": 0, "hit": nan, "net": nan, "net_ex": nan, "ci_lo": nan, "ci_hi": nan, "rand_median": nan,
@@ -138,3 +141,69 @@ def go(rows: list[dict], pooled_ci_lo: float) -> bool:
     ok = [r for r in rows if r["kind"] is not None]
     wins = lambda f: 3 * sum(bool(f(r)) for r in ok) >= 2 * len(rows)
     return wins(lambda r: r["net"] > 0) and wins(lambda r: r["net"] > r["rand_median"]) and pooled_ci_lo > 0
+
+
+REPORT = C.ROOT / "docs/reports/direction_report.md"
+E1_TABLE = C.PIPELINE / "outputs/results/pooled_embed_k0.43/final_table.csv"
+COLS = ["h", "fold", "model", "kind", "C", "m", "val_n", "n", "hit", "net", "net_ex", "ci_lo", "ci_hi", "rand_median",
+        "turnover", "max_dd"]
+NAN = float("nan")
+
+
+def run_h(df, h) -> tuple[list[dict], list[str], bool]:
+    """Table rows and verdict lines for one h. GO inputs come only from the SEL runs (full GRID, one rng(0) over
+    A, B, C, then the pooled CI). The E3/E4 rows re-run run_fold on one kind's grid with their own rng(0): table only."""
+    fl = list(folds(df, h))
+    rng = np.random.default_rng(0)
+    sel = [{"fold": f[0], **run_fold(*f[1:], h, rng)} for f in fl]
+    daily = [r["daily"] for r in sel if r["daily"] is not None]
+    lo, hi = boot_ci(pd.concat(daily), rng) if daily else (NAN, NAN)
+    ok = go(sel, lo)
+    rows = [{"h": h, "fold": r["fold"], "model": "E0 prior (LONG all)", "n": len(t[4]), "net": r["e0_prior"]}
+            for r, t in zip(sel, fl)]
+    rows += [{"h": h, "model": f"SEL ({r['kind']})", **r} for r in sel]
+    for name, kind in (("E3", "logit"), ("E4", "gbm")):
+        rng_k = np.random.default_rng(0)
+        rows += [{"h": h, "fold": f[0], "model": name, **run_fold(*f[1:], h, rng_k, [g for g in GRID if g[0] == kind])}
+                 for f in fl]
+    pos = sum(r["kind"] is not None and r["net"] > 0 for r in sel)
+    beat = sum(r["kind"] is not None and r["net"] > r["rand_median"] for r in sel)
+    lines = [f"- h={h}: (1) net > 0 in {pos}/3 folds; (2) net > rand_median in {beat}/3 folds; "
+             f"(3) pooled net_ex 95% CI [{lo:.5f}, {hi:.5f}], lower bound > 0: {lo > 0} -> **{'GO' if ok else 'NO-GO'}**"]
+    return rows, lines, ok
+
+
+def e1_rows() -> pd.DataFrame:
+    t = pd.read_csv(E1_TABLE)
+    return t[(t["method"] == "model") & t["headline"].astype(bool)][
+        ["T", "L", "config", "n_tickers", "date_from", "date_to", "hit_rate_mean", "f1_macro_mean", "f1_ci_lo",
+         "f1_ci_hi", "kappa_mean", "directional_share_mean"]]
+
+
+def main(frame=build_frame, report=REPORT, hs=C.HORIZONS):
+    t0 = time.time()
+    rows, lines, gos = [], [], []
+    for h in hs:
+        r, l, ok = run_h(frame(h), h)
+        rows, lines = rows + r, lines + l
+        gos += [h] if ok else []
+    table = pd.DataFrame(rows).reindex(columns=COLS).sort_values(["h", "fold", "model"], kind="stable")
+    decision = f"GO h={','.join(map(str, gos))}" if gos else "NO-GO"
+    out = "\n".join([
+        f"\n### Run {datetime.now().astimezone().isoformat(timespec='seconds')} ({time.time() - t0:.0f} s)\n",
+        "E0/E3/E4 × fold × h on test. SEL = the (kind, C, m) chosen on val (the GO candidate). E3/E4 = the same "
+        "machinery restricted to one kind (table only). net/net_ex = mean per LONG trade after COST; ci = 95% block "
+        "bootstrap of net_ex; rand_median = random-same-count median of net (SEL rows' value is the GO input).\n",
+        table.to_markdown(index=False, floatfmt=".4f"),
+        "\nE1 (Pipeline_V1.2 pooled_embed_k0.43, headline rows; split 70/15/15, dữ liệu trước khi sửa, không cùng "
+        "fold; 15 tickers; classification metrics only, that file has no net-return columns):\n",
+        e1_rows().to_markdown(index=False, floatfmt=".4f"),
+        "\nGO/NO-GO (pre-registered rule above):\n", *lines, f"\n**Decision: {decision}**\n"])
+    print(out)
+    with open(report, "a") as f:
+        f.write(out)
+    return decision
+
+
+if __name__ == "__main__":
+    main()

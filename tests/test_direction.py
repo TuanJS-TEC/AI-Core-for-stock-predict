@@ -3,8 +3,8 @@ import pandas as pd
 import pytest
 
 from ai_core import config as C
-from ai_core.direction import (FEATS, add_labels, boot_ci, build_frame, folds, go, long_mask, run_fold, select_on_val,
-                               sleeve_turnover)
+from ai_core.direction import (FEATS, add_labels, boot_ci, build_frame, folds, go, long_mask, main, run_fold,
+                               select_on_val, sleeve_turnover)
 
 N, WARM = 40, 20
 
@@ -64,10 +64,10 @@ def test_build_frame_real_data(h):
     assert all(0.05 < frac[k] < 0.9 for k in (-1.0, 0.0, 1.0))
 
 
-def _prices(n_sym=6):
+def _prices(n_sym=6, start="2025-03-03"):
     """Synthetic OHLCV through fold C's test window, with planted mean reversion so the models have something to find."""
     rng = np.random.default_rng(0)
-    dates = pd.bdate_range("2025-03-03", "2026-10-29")
+    dates = pd.bdate_range(start, "2026-10-29")
     parts = []
     for i in range(n_sym):
         x = np.zeros(len(dates))
@@ -139,3 +139,11 @@ def test_boot_ci_without_trades_is_nan():
     daily = pd.DataFrame({"s": 0.0, "k": 0}, index=pd.bdate_range("2026-07-01", periods=30))
     lo, hi = boot_ci(daily, np.random.default_rng(0))
     assert np.isnan(lo) and np.isnan(hi)
+
+
+def test_main_appends_decision(tmp_path):
+    p, report = _prices(start="2022-01-03"), tmp_path / "r.md"   # planted mean reversion in every fold: GO expected
+    report.write_text("pre-registered\n")
+    assert main(frame=lambda h: build_frame(h, p), report=report, hs=(2,)) == "GO h=2"
+    text = report.read_text()
+    assert text.startswith("pre-registered\n") and "SEL (" in text and "E1 (" in text and "Decision: GO h=2" in text

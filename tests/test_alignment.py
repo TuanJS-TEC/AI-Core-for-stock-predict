@@ -18,8 +18,8 @@ def test_volcast_reads_canonical_prices():
     from nlp_module.forecast import volcast
     h = volcast.load_history(symbols=volcast.SYMBOLS).set_index(["symbol", "date"]).close.sort_index()
     p = load_prices().set_index(["symbol", "date"]).close.sort_index()
-    assert set(h.index.get_level_values(0)) == set(volcast.SYMBOLS) and set(C.UNIVERSE) <= set(volcast.SYMBOLS)
-    assert (h.loc[p.index] == p).all()
+    assert set(h.index.get_level_values(0)) == set(volcast.SYMBOLS) and set(volcast.SYMBOLS) <= set(C.UNIVERSE)   # volcast widens to all 20 in Task 7
+    assert (p.loc[h.index] == h).all()
 
 
 def test_load_history_symbols_filter(tmp_path):

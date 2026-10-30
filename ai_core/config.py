@@ -10,8 +10,8 @@ for p in (PIPELINE, NLP):                      # `src` (Pipeline_V1.2) and `nlp_
         sys.path.append(str(p))
 
 STOCK_DIR = PIPELINE / "stock"                 # canonical prices: the newer copy, kept current by sync_stock_parquet.py
-# tickers with both prices (Pipeline) and news (NLP); BID CTG HDB VHM NVL lack prices, VNM SSI MBB GAS VRE lack news
-UNIVERSE = ["ACB", "FPT", "HPG", "MSN", "MWG", "STB", "TCB", "VCB", "VIC", "VPB"]
+# 20 tickers: prices (Pipeline_V1.2/stock) and news (NLP nlp.db) for all; app/trial_forecast use the same list
+UNIVERSE = "ACB BID CTG FPT GAS HDB HPG MBB MSN MWG NVL SSI STB TCB VCB VHM VIC VNM VPB VRE".split()
 HORIZONS = (2, 5)
 
 TEST_END = "2026-10-30"                        # pre-registered: fold C's test window ends here, frozen before any fusion result

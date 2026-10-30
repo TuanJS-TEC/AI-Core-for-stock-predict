@@ -4,6 +4,7 @@ import csv
 import random
 
 from .dedup import jaccard, shingles
+from .risk import risk_flags
 from .storage import ROOT
 
 LABELS = {"positive", "neutral", "negative"}
@@ -30,6 +31,45 @@ def sample(c, model_version, n, eval_after, seed=0):
                    r["difficult"], stream))
     c.commit()
     return min(n, len(rows))
+
+
+CHALLENGE_MODELS = ("baseline-tfidf-lr-v1", "phobert-phobert-v1")
+
+
+def sample_challenge(c, n=60, seed=0):
+    """Negative-class challenge set (stream 'challenge'): direct, representative, not-yet-sampled pairs where either
+    CHALLENGE_MODELS member's p_neg is the largest of the three, or the passage has event-risk flags (recomputed from
+    passage_text with risk.risk_flags, the same way pipeline.load_results does). One sample per document_id."""
+    rows = c.execute("""SELECT r.document_version_id vid, v.document_id did, r.target_entity_id eid, r.passage_text,
+                        r.sentence_ids, r.difficult, r.p_pos, r.p_neu, r.p_neg FROM article_company_result r
+                        JOIN document_version v USING(document_version_id)
+                        WHERE r.nlp_model_version IN (?,?) AND r.relation='direct' AND v.is_representative=1
+                        AND v.published_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM annotation_sample a
+                        WHERE a.document_version_id=r.document_version_id AND a.target_entity_id=r.target_entity_id)
+                        ORDER BY r.document_version_id, r.target_entity_id, r.nlp_model_version""",
+                     CHALLENGE_MODELS).fetchall()
+    pool = {}
+    for r in rows:   # a pair is scored by both models; it qualifies if either one calls it negative (strict argmax)
+        neg = None not in (r["p_pos"], r["p_neu"], r["p_neg"]) and r["p_neg"] > max(r["p_pos"], r["p_neu"])
+        if (r["vid"], r["eid"]) in pool:
+            pool[r["vid"], r["eid"]][1] |= neg
+        else:
+            pool[r["vid"], r["eid"]] = [r, neg]
+    cand = [r for r, neg in pool.values() if neg or risk_flags(r["passage_text"])]
+    random.Random(seed).shuffle(cand)
+    docs, n_new = set(), 0
+    for r in cand:
+        if n_new >= n:
+            break
+        if r["did"] in docs:
+            continue
+        docs.add(r["did"])
+        c.execute("""INSERT INTO annotation_sample (sample_id, document_version_id, target_entity_id, passage_text,
+                     sentence_ids, difficult, stream) VALUES (?,?,?,?,?,?,'challenge')""",
+                  (f"{r['vid']}:{r['eid']}", r["vid"], r["eid"], r["passage_text"], r["sentence_ids"], r["difficult"]))
+        n_new += 1
+    c.commit()
+    return n_new
 
 
 def export_csv(c, path, stream=None, only_pending=True):

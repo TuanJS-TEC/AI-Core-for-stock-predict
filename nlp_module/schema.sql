@@ -90,7 +90,7 @@ CREATE TABLE annotation_sample (
     passage_text         TEXT NOT NULL,
     sentence_ids         TEXT NOT NULL,
     difficult            INTEGER NOT NULL DEFAULT 0,
-    stream               TEXT NOT NULL,         -- dev | eval
+    stream               TEXT NOT NULL,         -- dev | eval | challenge
     sentiment_label      TEXT,                  -- positive | neutral | negative | NULL (not yet labeled)
     annotation_status    TEXT NOT NULL DEFAULT 'pending',   -- pending | labeled | skipped | unclear
     annotator_id         TEXT,

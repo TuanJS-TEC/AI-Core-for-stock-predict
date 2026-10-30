@@ -25,6 +25,30 @@ def bootstrap_macro_f1(labels, probs, n=2000, seed=0):
     return float(lo), float(hi)
 
 
+def challenge_report(c, model_version, n_boot=2000, seed=0):
+    """Negative-class F1 of `model_version`'s STORED predictions (argmax) on the labeled 'challenge' stream, with the
+    same 2.5/97.5 row-resampling bootstrap as bootstrap_macro_f1. Samples the model has no stored result for are
+    counted in n_unscored, not in n."""
+    rows = c.execute("""SELECT s.sentiment_label, r.p_pos, r.p_neu, r.p_neg FROM annotation_sample s
+                        LEFT JOIN article_company_result r ON r.document_version_id=s.document_version_id
+                        AND r.target_entity_id=s.target_entity_id AND r.nlp_model_version=?
+                        WHERE s.stream='challenge' AND s.annotation_status='labeled'""", (model_version,)).fetchall()
+    scored = [r for r in rows if r["p_neg"] is not None]
+    y = np.array([r["sentiment_label"] == "negative" for r in scored])
+    pred = np.array([LABELS[int(np.argmax((r["p_pos"], r["p_neu"], r["p_neg"])))] == "negative" for r in scored])
+
+    def f1(t, p):
+        d = 2 * (t & p).sum(-1) + (~t & p).sum(-1) + (t & ~p).sum(-1)
+        return np.where(d > 0, 2 * (t & p).sum(-1) / np.maximum(d, 1), 0.0)
+
+    out = {"n": len(scored), "n_neg": int(y.sum()), "n_unscored": len(rows) - len(scored)}
+    if not len(scored):
+        return {**out, "f1_neg": 0.0, "ci_lo": 0.0, "ci_hi": 0.0}
+    idx = np.random.default_rng(seed).integers(0, len(y), size=(n_boot, len(y)))
+    lo, hi = np.percentile(f1(y[idx], pred[idx]), [2.5, 97.5])
+    return {**out, "f1_neg": float(f1(y, pred)), "ci_lo": float(lo), "ci_hi": float(hi)}
+
+
 def abstention_curve(labels, probs):
     """-> [(entropy_threshold, coverage, accuracy_on_kept)] to choose the abstention threshold on VALIDATION data."""
     ent = np.array([entropy(p) for p in probs])

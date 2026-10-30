@@ -49,7 +49,11 @@ def main(argv=None):
     p.add_argument("--end", type=d, required=True); p.add_argument("--out", default="data/snapshots.parquet")
     p = add("annotate-sample"); p.add_argument("--model", default="lexicon"); p.add_argument("-n", type=int, default=100)
     p.add_argument("--eval-after", required=True, help="YYYY-MM-DD: samples published on/after go to the frozen eval stream")
-    p = add("annotate-export"); p.add_argument("path"); p.add_argument("--stream", choices=["dev", "eval"])
+    p = add("challenge-sample", help="negative-class challenge set: model-negative or risk-flagged passages, stream 'challenge'")
+    p.add_argument("-n", type=int, default=60)
+    p = add("challenge-report", help="negative-class F1 + bootstrap CI95 of a stored model version on the labeled challenge set")
+    p.add_argument("--model", required=True)
+    p = add("annotate-export"); p.add_argument("path"); p.add_argument("--stream", choices=["dev", "eval", "challenge"])
     p = add("annotate-import"); p.add_argument("path"); p.add_argument("--annotator", required=True); p.add_argument("--guideline", default="v0")
     add("leak-check")
     p = add("train-baseline"); p.add_argument("--out", default="data/models/baseline.joblib"); p.add_argument("--version", default="baseline-tfidf-lr-v1")
@@ -105,6 +109,10 @@ def main(argv=None):
         print(f"{len(snaps)} snapshots -> {a.out}; with news: {sum(s.features['has_news'] for s in snaps)}")
     elif a.cmd == "annotate-sample":
         print("sampled", annotate.sample(c, load_model(a.model).version, a.n, a.eval_after))
+    elif a.cmd == "challenge-sample":
+        print("sampled", annotate.sample_challenge(c, a.n))
+    elif a.cmd == "challenge-report":
+        print(json.dumps({"model": a.model, **evaluate.challenge_report(c, a.model)}, indent=1))
     elif a.cmd == "annotate-export":
         print("exported", annotate.export_csv(c, a.path, a.stream))
     elif a.cmd == "annotate-import":

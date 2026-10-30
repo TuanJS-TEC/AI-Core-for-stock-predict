@@ -66,3 +66,37 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(sorted(df["result_id"]), sorted(want))
         self.assertEqual(sorted(df["result_id"]), ["r1", "r4"])
         self.assertIn("prosecution", df.set_index("result_id").loc["r1", "flags"])
+
+
+class StaleTest(unittest.TestCase):
+    def board(self):
+        import pandas as pd
+        return pd.DataFrame({"symbol": ["AAA", "AAA", "BBB"], "h": [2, 5, 2],
+                             "base_date": ["2026-10-29", "2026-10-29", "2026-10-30"],
+                             "decision": ["NO_TRADE"] * 3, "reason": ["r"] * 3,
+                             "call": ["strong", "weak", "strong"], "p_strong": [0.7, 0.3, 0.8]})
+
+    def test_row_older_than_board_is_stale(self):
+        from nlp_module.board import mark_stale
+        out = mark_stale(self.board(), None)            # a failed sync left AAA on yesterday's row
+        a, b = out[out["symbol"] == "AAA"], out[out["symbol"] == "BBB"]
+        self.assertTrue((a["decision"] == "DATA_INVALID (stale)").all())
+        self.assertTrue(a["call"].isna().all() and a["p_strong"].isna().all())
+        self.assertIn("2026-10-30", a["reason"].iloc[0])
+        self.assertEqual(list(b["decision"]), ["NO_TRADE"])
+        self.assertEqual(list(b["call"]), ["strong"])
+
+    def test_newer_prices_make_whole_board_stale(self):
+        import pandas as pd
+        from nlp_module.board import mark_stale
+        out = mark_stale(self.board(), pd.Timestamp("2026-11-02"))   # live did not run after the last sync
+        self.assertTrue((out["decision"] == "DATA_INVALID (stale)").all())
+
+    def test_current_board_unchanged(self):
+        import pandas as pd
+        from nlp_module.board import mark_stale
+        df = self.board()
+        df["base_date"] = "2026-10-30"
+        out = mark_stale(df, pd.Timestamp("2026-10-30"))
+        pd.testing.assert_frame_equal(out, df)
+        self.assertTrue(mark_stale(df.iloc[:0], None).empty)

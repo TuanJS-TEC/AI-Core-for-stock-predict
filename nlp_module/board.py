@@ -17,6 +17,27 @@ def newest_decisions(con, version: str = FUSION_VERSION) -> pd.DataFrame:
         "ORDER BY symbol, h", con, params=(version,))
 
 
+def mark_stale(df: pd.DataFrame, latest_price=None) -> pd.DataFrame:
+    """Rows older than the session the board should be on -> decision 'DATA_INVALID (stale)', call/p_strong blanked.
+
+    Expected session = max(newest base_date on the board, `latest_price` = newest session in the price files, naive
+    date or None). The board max catches one ticker left on yesterday's row (its sync failed, so ai_core.live wrote
+    MISSING_SESSION, which never replaces the old row); the price date catches a live run that has not happened since
+    the last sync (then every row is stale)."""
+    if df.empty:
+        return df
+    ref = pd.Timestamp(df["base_date"].max())
+    if latest_price is not None:
+        ref = max(ref, pd.Timestamp(latest_price))
+    stale = pd.to_datetime(df["base_date"]) < ref
+    out = df.copy()
+    out.loc[stale, "decision"] = "DATA_INVALID (stale)"
+    out.loc[stale, "reason"] = [f"stale: phiên căn cứ {b} < {ref:%Y-%m-%d}" for b in out.loc[stale, "base_date"]]
+    out["call"] = out["call"].where(~stale, None)
+    out["p_strong"] = out["p_strong"].where(~stale)
+    return out
+
+
 def snapshot_passages(con, symbol: str, cutoff, model_version: str) -> pd.DataFrame:
     """The passages that fed the live snapshot at `cutoff` (tz-aware UTC): the selection of contract.build_snapshot in
     live mode, i.e. representative, relation != market, processed_at <= cutoff and within WINDOW_H hours of it.

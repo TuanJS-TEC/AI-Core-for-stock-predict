@@ -1300,6 +1300,7 @@ with tab_board:
         st.info("Chưa có quyết định (bảng `fusion_decision` còn rỗng). Chạy:\n\n"
                 "```\ncd .. && NLP_Module/.venv/bin/python -m ai_core.live\n```")
     else:
+        from nlp_module.board import mark_stale
         _pd = latest_price_date()
         _bd = pd.Timestamp(_fd["base_date"].max())
         if _pd is None:
@@ -1307,7 +1308,8 @@ with tab_board:
         elif _bd < _pd:
             st.warning(f"Quyết định mới nhất thuộc phiên {_bd:%d/%m/%Y}, cũ hơn giá mới nhất ({_pd:%d/%m/%Y}). "
                        "`ai_core.live` chưa chạy sau lần đồng bộ giá gần nhất.")
-        _bad = _fd[_fd["decision"] == "DATA_INVALID"]
+        _fd = mark_stale(_fd, _pd)   # hàng cũ hơn phiên mới nhất của bảng/giá -> DATA_INVALID (stale)
+        _bad = _fd[_fd["decision"].str.startswith("DATA_INVALID")]
         if not _bad.empty:
             st.error(f"{_bad['symbol'].nunique()} mã có DATA_INVALID, dữ liệu không đủ tin cậy: "
                      + ", ".join(f"{s} ({r})" for s, r in _bad.drop_duplicates("symbol")[["symbol", "reason"]].itertuples(index=False)))
@@ -1322,7 +1324,10 @@ with tab_board:
                      column_config={"p_strong": st.column_config.NumberColumn(format="%.2f"),
                                     "Sentiment 24h": st.column_config.NumberColumn(format="%+.3f")})
         st.caption("Volcast \"—\" = chưa đủ tự tin để nhận định (hoặc DATA_INVALID, hoặc mã ngoài danh sách volcast). "
-                   "Sentiment trống = không có tin trong 24 giờ.")
+                   "Sentiment trống = không có tin trong 24 giờ. **DATA_INVALID (stale)** = hàng của mã này cũ hơn phiên "
+                   "mới nhất (đồng bộ giá của mã lỗi hoặc `ai_core.live` chưa chạy lại), nên Volcast/p_strong bị ẩn. "
+                   "Cờ rủi ro là từ khoá khớp trong passage 72 giờ, **không nhất thiết về chính công ty** "
+                   "(công ty có thể không phải chủ thể bài).")
 
         _syms = sorted(_fd["symbol"].unique())
         _s = st.selectbox("Xem passage 72 giờ của mã", _syms, key="board_sym")
@@ -1340,4 +1345,5 @@ with tab_board:
         st.caption("Danh sách dùng **đúng cách chọn của snapshot live**: passage đại diện (bỏ bài lặp), `relation` khác `market`, "
                    "**đã được xử lý** (`processed_at`) trong 72 giờ trước 15:00 phiên căn cứ — không phải theo ngày đăng, "
                    "nên bài đăng cũ nhưng thu thập muộn vẫn có mặt. Số dòng có thể lệch với hàng trên bảng nếu pipeline đã "
-                   "xử lý thêm bài từ lúc `ai_core.live` chạy. Cờ rủi ro dò theo từ khoá (`risk_flags`), không phải đầu ra model.")
+                   "xử lý thêm bài từ lúc `ai_core.live` chạy. Cờ rủi ro dò theo từ khoá (`risk_flags`), không phải đầu ra model, "
+                   "và không nhất thiết về chính công ty (công ty có thể không phải chủ thể bài).")

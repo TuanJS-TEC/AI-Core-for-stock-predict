@@ -5,3 +5,4 @@ Pipeline_V1.2/outputs/
 *.log
 .pytest_cache/
 __pycache__/
+.superpowers/

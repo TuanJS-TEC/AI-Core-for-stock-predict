@@ -37,6 +37,13 @@ def connect(path=DB_PATH) -> sqlite3.Connection:
                  symbol TEXT NOT NULL, base_date TEXT NOT NULL, h INTEGER NOT NULL, p_strong REAL NOT NULL,
                  call TEXT, model_version TEXT NOT NULL, created_at TEXT NOT NULL,
                  PRIMARY KEY (symbol, base_date, h, model_version))""")
+    c.execute("""CREATE TABLE IF NOT EXISTS fusion_decision (
+                 symbol TEXT NOT NULL, base_date TEXT NOT NULL, h INTEGER NOT NULL,
+                 decision TEXT NOT NULL CHECK (decision IN ('LONG','AVOID','NO_TRADE','DATA_INVALID')),
+                 p_up REAL, p_down REAL, margin REAL, p_strong REAL, call TEXT,
+                 has_news INTEGER NOT NULL, sentiment_mean_24h REAL, risk_flags TEXT NOT NULL, reason TEXT,
+                 version TEXT NOT NULL, created_at TEXT NOT NULL,
+                 PRIMARY KEY (symbol, base_date, h, version))""")
     return c
 
 

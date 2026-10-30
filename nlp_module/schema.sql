@@ -120,3 +120,24 @@ CREATE TABLE IF NOT EXISTS vol_forecast (
     created_at     TEXT NOT NULL,             -- UTC ISO
     PRIMARY KEY (symbol, base_date, h, model_version)
 );
+
+-- Live decision board (ai_core.live). Direction was NO-GO, so decision is NO_TRADE or DATA_INVALID and p_up/p_down/margin
+-- stay NULL; p_strong/call come from vol_forecast and are NULL for symbols volcast does not forecast.
+CREATE TABLE IF NOT EXISTS fusion_decision (
+    symbol             TEXT NOT NULL,
+    base_date          TEXT NOT NULL,         -- YYYY-MM-DD, the symbol's last price session
+    h                  INTEGER NOT NULL,      -- horizon in sessions
+    decision           TEXT NOT NULL CHECK (decision IN ('LONG','AVOID','NO_TRADE','DATA_INVALID')),
+    p_up               REAL,
+    p_down             REAL,
+    margin             REAL,
+    p_strong           REAL,
+    call               TEXT,
+    has_news           INTEGER NOT NULL,      -- 0/1: any representative article in the 72h window before the cutoff
+    sentiment_mean_24h REAL,                  -- NULL = missing, not neutral
+    risk_flags         TEXT NOT NULL,         -- JSON list of risk.FLAGS keys found in the 72h window
+    reason             TEXT,
+    version            TEXT NOT NULL,
+    created_at         TEXT NOT NULL,         -- UTC ISO
+    PRIMARY KEY (symbol, base_date, h, version)
+);

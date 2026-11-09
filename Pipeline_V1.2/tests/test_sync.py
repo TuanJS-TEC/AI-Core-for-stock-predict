@@ -86,7 +86,7 @@ def test_overlap_mismatch_triggers_full_refetch(tmp_path, monkeypatch):
     stored = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00"], [33.8, 33.55])
     full = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00", "2026-10-28 07:00:00"], [22.55, 22.38, 22.35])
     calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: full[full.time >= s].reset_index(drop=True))
-    assert calls == ["2026-10-27", "2026-10-26"]                  # incremental, then full from the first stored day
+    assert calls == ["2026-10-26", "2026-10-26"]                  # overlap start (< 20 sessions stored = first day), then full
     assert list(pq.close) == [22.55, 22.38, 22.35]
 
 
@@ -95,7 +95,8 @@ def test_big_move_after_merge_triggers_full_refetch(tmp_path, monkeypatch):
     stored = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00"], [33.8, 33.55])
     inc = frame(["2026-10-27 07:00:00", "2026-10-28 07:00:00"], [33.55, 22.35])
     full = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00", "2026-10-28 07:00:00"], [22.55, 22.38, 22.35])
-    calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: inc if s == "2026-10-27" else full)
+    seq = iter([inc, full])
+    calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: next(seq))
     assert len(calls) == 2
     assert list(pq.close) == [22.55, 22.38, 22.35]
 
@@ -129,8 +130,9 @@ def test_empty_refetch_keeps_stored_data(tmp_path, monkeypatch, caplog):
     # the mixed series [33.8, 22.38, 22.35] must not be written; parquet and CSV keep the stored rows
     stored = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00"], [33.8, 33.55])
     inc = frame(["2026-10-27 07:00:00", "2026-10-28 07:00:00"], [22.38, 22.35])
-    calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: inc if s == "2026-10-27" else pd.DataFrame())
-    assert calls == ["2026-10-27", "2026-10-26"]
+    seq = iter([inc, pd.DataFrame()])
+    calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: next(seq))
+    assert calls == ["2026-10-26", "2026-10-26"]
     assert list(pq.close) == [33.8, 33.55]
     assert list(pd.read_csv(tmp_path / "AAA_stock.csv").close) == [33.8, 33.55]
     assert any(r.levelname == "ERROR" for r in caplog.records)
@@ -141,7 +143,8 @@ def test_truncated_refetch_keeps_stored_data(tmp_path, monkeypatch, caplog):
     stored = frame([d + " 07:00:00" for d in days], [33.0, 33.1, 33.2, 33.3, 33.4, 33.8, 33.55])
     inc = frame(["2026-10-27 07:00:00", "2026-10-28 07:00:00"], [22.38, 22.35])
     short = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00", "2026-10-28 07:00:00"], [22.55, 22.38, 22.35])
-    calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: inc if s == "2026-10-27" else short)
+    seq = iter([inc, short])
+    calls, pq = _run(tmp_path, monkeypatch, stored, lambda s: next(seq))
     assert len(calls) == 2
     assert list(pq.close) == list(stored.close)
     assert list(pd.read_csv(tmp_path / "AAA_stock.csv").close) == list(stored.close)
@@ -238,3 +241,82 @@ def test_init_returns_none_on_empty_fetch(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "fetch_latest_ohlcv", lambda *a, **k: pd.DataFrame())
     assert S.init_stock_file("BID", str(tmp_path)) is None
     assert not (tmp_path / "BID_stock.csv").exists()
+
+
+def _sessions(n):
+    days = pd.bdate_range("2026-09-01", periods=n)
+    return S.normalize_sessions(frame([d.strftime("%Y-%m-%d 07:00:00") for d in days], [10.0 + i * 0.01 for i in range(n)]))
+
+
+def test_clean_types_drops_nan_volume_instead_of_zeroing():
+    df = frame(["2026-10-15 07:00:00", "2026-10-16 07:00:00"], [1.0, 2.0])
+    df["volume"] = [100, None]
+    out = S.clean_types(df)
+    assert len(out) == 1 and out.close.tolist() == [1.0]
+    assert out.volume.dtype == "int64"
+
+
+def test_clean_types_keeps_real_zero_volume_and_logs_dropped_rows(caplog):
+    df = frame(["2026-10-15 07:00:00", "2026-10-16 07:00:00"], [1.0, -2.0])
+    df["volume"] = [0, 100]
+    out = S.clean_types(df)
+    assert out.volume.tolist() == [0]
+    assert any(r.levelname == "ERROR" and "nonpositive_price" in r.getMessage() for r in caplog.records)
+
+
+def test_basis_changed_sees_open_high_low():
+    stored = S.normalize_sessions(frame(["2026-10-15 07:00:00", "2026-10-16 07:00:00"], [1.0, 2.0]))
+    merged = stored.copy()
+    merged.loc[0, "open"] += 0.5
+    assert S.basis_changed(stored, merged)
+    assert not S.basis_changed(stored, stored)
+
+
+def test_quote_gets_explicit_source(monkeypatch):
+    kw = {}
+
+    class FakeQuote:
+        def __init__(self, **k):
+            kw.update(k)
+
+        def history(self, **k):
+            return pd.DataFrame()
+    monkeypatch.setattr(S, "Quote", FakeQuote)
+    S.fetch_latest_ohlcv("AAA", "2026-10-01", "2026-10-02")
+    assert kw == {"source": C.SYNC_SOURCE, "symbol": "AAA"}
+
+
+def test_overlap_start_is_20th_last_session():
+    stored = _sessions(30)
+    assert S.overlap_start(stored) == stored.time.iloc[-20].strftime("%Y-%m-%d")
+    short = _sessions(5)
+    assert S.overlap_start(short) == short.time.iloc[0].strftime("%Y-%m-%d")
+
+
+def test_process_fetches_from_overlap_start(tmp_path, monkeypatch):
+    stored = _sessions(30)
+    calls, _ = _run(tmp_path, monkeypatch, stored, lambda s: pd.DataFrame())
+    assert calls == [S.overlap_start(stored)]
+
+
+def test_raw_response_saved_before_merge(tmp_path, monkeypatch):
+    stored = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00"], [33.8, 33.55])
+    inc = frame(["2026-10-27 07:00:00", "2026-10-28 07:00:00"], [33.55, 33.9])
+    _run(tmp_path, monkeypatch, stored, lambda s: inc)
+    assert len(list((tmp_path / "raw").glob("*/AAA.parquet"))) == 1
+
+
+def test_failed_csv_write_keeps_both_old_files(tmp_path, monkeypatch):
+    stored = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00"], [33.8, 33.55])
+    _run(tmp_path, monkeypatch, stored, lambda s: pd.DataFrame())
+    pq, csv = tmp_path / C.STOCK_FILE.format(ticker="AAA"), tmp_path / "AAA_stock.csv"
+    before = (pq.read_bytes(), csv.read_bytes())
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(pd.DataFrame, "to_csv", boom)
+    inc = frame(["2026-10-27 07:00:00", "2026-10-28 07:00:00"], [33.55, 33.9])
+    monkeypatch.setattr(S, "fetch_latest_ohlcv", lambda *a, **k: inc)
+    S.process_stock_file(str(csv), str(tmp_path), delay_between_calls=0)
+    assert (pq.read_bytes(), csv.read_bytes()) == before
+    assert not list(tmp_path.glob("*.tmp"))

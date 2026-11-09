@@ -19,9 +19,11 @@ import time
 import argparse
 import logging
 from datetime import datetime
+from pathlib import Path
 import pandas as pd
 
 from src import config as C
+from src.validation import check_ohlcv
 
 # Thiết lập logging
 logging.basicConfig(
@@ -68,13 +70,20 @@ def normalize_sessions(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def clean_types(df: pd.DataFrame) -> pd.DataFrame:
-    """Chuẩn hóa tên cột và kiểu dữ liệu, chỉ giữ các cột chuẩn C.RAW_COLS."""
+    """Chuẩn hóa tên cột và kiểu dữ liệu, chỉ giữ các cột chuẩn C.RAW_COLS và chỉ trả dòng hợp lệ.
+
+    Dòng giá không dương, sai thứ tự OHLC hoặc volume NaN/âm bị loại (logger.error kèm lý do), không điền 0;
+    volume 0 thật được giữ.
+    """
     df = df.copy()
     df.columns = [col.strip().lower() for col in df.columns]
-    for col in C.PRICE_COLS:
+    for col in (*C.PRICE_COLS, C.VOLUME_COL):
         df[col] = pd.to_numeric(df[col], errors="coerce")
-    df[C.VOLUME_COL] = pd.to_numeric(df[C.VOLUME_COL], errors="coerce").fillna(0).astype("int64")
-    return df[list(C.RAW_COLS)]
+    good, bad = check_ohlcv(df[list(C.RAW_COLS)])
+    for _, r in bad.iterrows():
+        logger.error(f"Loại dòng {r[C.TIME_COL]}: {r['reason']} "
+                     f"(O={r['open']} H={r['high']} L={r['low']} C={r['close']} V={r['volume']})")
+    return good.astype({C.VOLUME_COL: "int64"}).reset_index(drop=True)
 
 
 VN_TZ = "Asia/Ho_Chi_Minh"
@@ -100,7 +109,7 @@ def fetch_latest_ohlcv(symbol: str, start_date: str, end_date: str, max_retries:
 
     for attempt in range(1, max_retries + 1):
         try:
-            quote = Quote(symbol=symbol)
+            quote = Quote(source=C.SYNC_SOURCE, symbol=symbol)
             df = quote.history(start=start_date, end=end_date, interval=C.SYNC_INTERVAL)
             if df is not None and not df.empty:
                 return drop_open_session(df, pd.Timestamp.now(tz=VN_TZ))
@@ -118,18 +127,51 @@ def fetch_latest_ohlcv(symbol: str, start_date: str, end_date: str, max_retries:
 def basis_changed(stored: pd.DataFrame, merged: pd.DataFrame) -> bool:
     """True nếu chuẩn điều chỉnh giá đã đổi (cổ tức, chia tách...) so với bản đã lưu. Cả hai đã qua normalize_sessions.
 
-    Hai dấu hiệu: (1) phiên đã lưu có giá đóng cửa lệch quá C.SYNC_BASIS_TOL trong merged; (2) bước nhảy
+    Hai dấu hiệu: (1) phiên đã lưu có open/high/low/close lệch quá C.SYNC_BASIS_TOL trong merged; (2) bước nhảy
     |pct_change| > C.SYNC_RET_BAND mà phiên sau mới hơn stored.time.max(). Bước nhảy đã nằm trong lịch sử
     (phiên bị thiếu thật) không tính lại mỗi ngày.
     """
     # ponytail: không phân biệt được bước nhảy do phiên thiếu với corporate action trong lần chạy đầu tiên; chấp nhận một lần tải lại.
-    old = stored.set_index(C.TIME_COL)["close"]
-    new = merged.set_index(C.TIME_COL)["close"]
+    old = stored.set_index(C.TIME_COL)
+    new = merged.set_index(C.TIME_COL)
     common = old.index.intersection(new.index)
-    if ((new[common] - old[common]).abs() > C.SYNC_BASIS_TOL).any():
+    cols = list(C.PRICE_COLS)
+    if ((new.loc[common, cols] - old.loc[common, cols]).abs() > C.SYNC_BASIS_TOL).any().any():
         return True
-    jumps = new.pct_change().abs() > C.SYNC_RET_BAND
+    jumps = new["close"].pct_change().abs() > C.SYNC_RET_BAND
     return bool(jumps[jumps.index > old.index.max()].any())
+
+
+def overlap_start(stored: pd.DataFrame, n: int = C.SYNC_OVERLAP_SESSIONS) -> str:
+    """Ngày YYYY-MM-DD của phiên thứ n tính từ cuối (hoặc phiên đầu nếu ít hơn n phiên); stored đã sắp xếp."""
+    t = stored[C.TIME_COL]
+    return pd.Timestamp(t.iloc[-n] if len(t) >= n else t.iloc[0]).strftime("%Y-%m-%d")
+
+
+def save_raw(df_raw: pd.DataFrame, stock_dir: str, symbol: str) -> Path:
+    """Lưu nguyên phản hồi vnstock (trước khi chuẩn hóa) vào stock_dir/raw/<YYYYMMDD hôm nay>/<SYM>.parquet."""
+    path = Path(stock_dir) / "raw" / datetime.now().strftime("%Y%m%d") / f"{symbol}.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df_raw.to_parquet(path, engine="pyarrow", index=False)
+    return path
+
+
+def write_pair(df: pd.DataFrame, parquet_path: str, csv_path: str | None) -> None:
+    """Ghi parquet (và CSV nếu có csv_path) qua file tạm cùng thư mục rồi os.replace; lỗi bất kỳ thì xóa file tạm,
+    raise và không thay file nào (cả hai file cũ giữ nguyên)."""
+    tmps = [(parquet_path + ".tmp", parquet_path)] + ([(csv_path + ".tmp", csv_path)] if csv_path else [])
+    try:
+        df.to_parquet(tmps[0][0], engine="pyarrow", index=False)
+        if csv_path:
+            out = df.copy()
+            out[C.TIME_COL] = out[C.TIME_COL].dt.strftime("%Y-%m-%d %H:%M:%S")
+            out.to_csv(tmps[1][0], index=False)
+        for tmp, final in tmps:
+            os.replace(tmp, final)
+    finally:
+        for tmp, _ in tmps:
+            if os.path.exists(tmp):
+                os.remove(tmp)
 
 
 REFETCH_START_SLACK = pd.Timedelta(days=5)   # bản tải lại được bắt đầu trễ hơn ngày đầu đã lưu tối đa chừng này
@@ -191,15 +233,19 @@ def process_stock_file(csv_path: str, output_dir: str, update_csv: bool = True,
         return
 
     # Chuẩn hóa kiểu dữ liệu và thời gian (một dòng mỗi phiên)
+    df_csv = clean_types(df_csv)
+    if df_csv.empty:
+        logger.error(f"[{symbol}] {file_name} không còn dòng hợp lệ nào; không ghi gì.")
+        return
     raw_count = len(df_csv)
-    df_csv = normalize_sessions(clean_types(df_csv))
+    df_csv = normalize_sessions(df_csv)
     if len(df_csv) < raw_count:
         logger.warning(f"[{symbol}] Bỏ {raw_count - len(df_csv)} dòng trùng ngày trong {file_name}")
 
     initial_count = len(df_csv)
     last_record_date = df_csv[C.TIME_COL].max()
     today = datetime.now()
-    start_date_str = last_record_date.strftime("%Y-%m-%d")
+    start_date_str = overlap_start(df_csv)
     end_date_str = today.strftime("%Y-%m-%d")
 
     logger.info(f"[{symbol}] Dữ liệu hiện có: {initial_count} phiên (từ {df_csv[C.TIME_COL].min().strftime('%Y-%m-%d')} đến {last_record_date.strftime('%Y-%m-%d')})")
@@ -215,6 +261,12 @@ def process_stock_file(csv_path: str, output_dir: str, update_csv: bool = True,
         logger.info(f"[{symbol}] Gọi vnstock cập nhật từ {start_date_str} đến {end_date_str}...")
         df_new = fetch_latest_ohlcv(symbol, start_date=start_date_str, end_date=end_date_str)
         time.sleep(delay_between_calls)  # Tránh vượt quá giới hạn lượt gọi API
+        # ponytail: chỉ lưu phản hồi tải tăng dần; bản tải lại toàn bộ (refetch_full) không lưu vì trùng tên file trong ngày.
+        if df_new is not None and not df_new.empty:
+            try:
+                save_raw(df_new, output_dir, symbol)
+            except Exception as e:
+                logger.error(f"[{symbol}] Không lưu được phản hồi thô vnstock: {e}")
 
     # 3. Hợp nhất dữ liệu: ghép rồi lọc trùng theo ngày (phiên trùng ưu tiên bản ghi mới nhất từ vnstock)
     if df_new is not None and not df_new.empty:
@@ -237,23 +289,13 @@ def process_stock_file(csv_path: str, output_dir: str, update_csv: bool = True,
         logger.info(f"[{symbol}] Không có bản ghi mới từ vnstock. Giữ nguyên {initial_count} phiên.")
         df_merged = df_csv
 
-    # 4. Xuất ra định dạng Apache Parquet
+    # 4. Ghi parquet và CSV thành một cặp: lỗi thì giữ nguyên cả hai file cũ
     try:
-        df_merged.to_parquet(parquet_path, engine="pyarrow", index=False)
-        parquet_size_kb = os.path.getsize(parquet_path) / 1024
-        logger.info(f"[{symbol}] Đã xuất thành công: {os.path.basename(parquet_path)} ({parquet_size_kb:.1f} KB)")
+        write_pair(df_merged, parquet_path, csv_path if update_csv else None)
+        logger.info(f"[{symbol}] Đã xuất thành công: {os.path.basename(parquet_path)} ({os.path.getsize(parquet_path) / 1024:.1f} KB)"
+                    + (f" và {os.path.basename(csv_path)}" if update_csv else ""))
     except Exception as e:
-        logger.error(f"[{symbol}] Lỗi khi lưu file Parquet {parquet_path}: {e}")
-
-    # 5. Đồng bộ lại file CSV nếu được bật
-    if update_csv:
-        try:
-            df_to_save = df_merged.copy()
-            df_to_save[C.TIME_COL] = df_to_save[C.TIME_COL].dt.strftime("%Y-%m-%d %H:%M:%S")
-            df_to_save.to_csv(csv_path, index=False)
-            logger.info(f"[{symbol}] Đã đồng bộ cập nhật lại {os.path.basename(csv_path)}")
-        except Exception as e:
-            logger.warning(f"[{symbol}] Không thể cập nhật lại CSV {csv_path}: {e}")
+        logger.error(f"[{symbol}] Lỗi khi ghi {parquet_path} / {csv_path}, giữ nguyên dữ liệu cũ: {e}")
 
 
 def init_stock_file(symbol: str, stock_dir: str, start: str = C.SYNC_INIT_START):

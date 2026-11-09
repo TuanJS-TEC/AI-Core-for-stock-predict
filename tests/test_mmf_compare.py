@@ -103,6 +103,13 @@ def test_mid_fold_partial_run_skips_missing_sides(tmp_path):
     assert C.NOT_ENOUGH in out
 
 
+def test_early_interrupted_runs_still_report(tmp_path):
+    for name, arms in (("base", MC.BASELINES), ("nofusion", list(MC.BASELINES) + list(C.UNIMODAL))):
+        d = _run_dir(tmp_path / name, "A", arms=arms)
+        out = C.write_report(d, tmp_path / f"{name}.md").read_text()
+        assert "## R1" in out and C.NOT_ENOUGH in out
+
+
 def test_full_folds_keep_real_verdict():
     t = C.tables(pd.concat([fake(a, f, 2.0 if a == "fusion_concat" else 0.0) for a in ALL_ARMS for f in "ABC"]))
     assert t["r3"]["verdict"].iloc[0] != C.NOT_ENOUGH and (t["r3"]["skipped"] == "").all()

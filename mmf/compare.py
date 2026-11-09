@@ -180,7 +180,7 @@ def tables(preds):
             rows["r3"].append(_row(ph, h, dict.fromkeys(folds, "fusion_concat"), dict.fromkeys(folds, ab), all_folds))
     leak = arms[(arms["macro_f1"] >= C.LEAK_ALARM_F1) | (arms["auc_up_down"] >= C.LEAK_ALARM_AUC)]
     return {"arms": arms, "per_symbol": per_symbol, **{k: pd.DataFrame(v) for k, v in rows.items()},
-            "leak_alarms": leak.reset_index(drop=True), "picks": pd.DataFrame(picks)}
+            "leak_alarms": leak.reset_index(drop=True), "picks": pd.DataFrame(picks).reindex(columns=["h", "fold", *GROUPS])}
 
 
 def _all_preds(run_dir):
@@ -191,7 +191,7 @@ def _all_preds(run_dir):
 
 
 def _md(df, cols=None, floatfmt=".4f"):
-    return "(không có)" if df.empty else (df if cols is None else df[cols]).to_markdown(index=False, floatfmt=floatfmt)
+    return "(không có)" if df.empty else (df if cols is None else df.reindex(columns=cols)).to_markdown(index=False, floatfmt=floatfmt)
 
 
 def write_report(run_dir, out=C.REPORTS / "mmf_dev_report.md"):
@@ -202,7 +202,7 @@ def write_report(run_dir, out=C.REPORTS / "mmf_dev_report.md"):
     metrics = ["n", "n_days", "alpha", "logloss", "brier", "accuracy", "macro_f1", "kappa", "auc_ovr", "auc_up_down",
                *[f"{k}_{n}" for k in ("precision", "recall") for n in E.NAMES]]
     cmp_cols = ["h", "a", "b", "mean", "lo", "hi", "fold_wins", "n_folds", "n", "n_days", "verdict", "skipped"]
-    sym = t["per_symbol"].merge(t["picks"][["h", "fold", "fusion"]].rename(columns={"fusion": "arm"}).dropna(), on=["h", "fold", "arm"])
+    sym = t["per_symbol"].merge(t["picks"][["h", "fold", "fusion"]].rename(columns={"fusion": "arm"}).dropna().astype({"arm": str}), on=["h", "fold", "arm"])
     lines = [
         "# Báo cáo phát triển: model đa phương thức T+2, T+5", "",
         "**Đây là vùng phát triển, chưa phải kết quả cuối.** Khối eval của fold A, B, C đã bị nhìn trong các thí nghiệm trước; "

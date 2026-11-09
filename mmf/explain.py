@@ -137,20 +137,23 @@ def _lime_rows(b, gbm, x, cols):
 
 
 def _label_shares(ev):
-    """Share of the two labels that are not trades, each row at its own fold's margin."""
+    """Share of the two labels that are not trades among the rows with a return (coverage's base), each at its fold's margin."""
+    ev = ev[ev["net_ret"].notna()]
     k = pd.Series(R.label(ev["p_up"], ev["p_down"], ev["m"].to_numpy())).value_counts(normalize=True)
     return {"share_tranh": k.get(R.RULES[1], 0.0), "share_khong_du": k.get(R.RULES[2], 0.0)}
 
 
 def _simulations(preds, b, arm):
     """(row of the fold, eval rows with the fold's margin): margin from calib ensemble probabilities, scored on eval."""
-    ret = pd.DataFrame({"symbol": b.frame["symbol"].astype(str), "as_of_session": b.frame["as_of_session"], "net_ret": R.trade_return(b.frame, b.h)})
-    d = preds[(preds["fold"] == b.fold.name) & (preds["arm"] == arm)].merge(ret, on=["symbol", "as_of_session"], how="left", validate="one_to_one")
-    cal, ev = d[d["block"] == "calib"], d[d["block"] == "eval"]
+    d = preds[(preds["fold"] == b.fold.name) & (preds["arm"] == arm)]
+    cal = R.with_net_ret(d[d["block"] == "calib"], b.frame, b.h, b.fold.calib_end)
+    ev = R.with_net_ret(d[d["block"] == "eval"], b.frame, b.h, b.fold.eval_end)
     m = R.pick_margin(cal["p_up"], cal["p_down"], cal["net_ret"])
     mm = np.inf if m is None else m       # no margin on calib: no trade
     ev = ev.assign(m=mm)
-    return {**R.simulate(ev, mm, b.h), **_label_shares(ev), "fold": b.fold.name, "m": m, "calib_mean_net": R.simulate(cal, mm, b.h)["mean_net"]}, ev
+    c = R.simulate(cal, mm, b.h)
+    return {**R.simulate(ev, mm, b.h), **_label_shares(ev), "fold": b.fold.name, "m": m,
+            "calib_mean_net": c["mean_net"], "calib_coverage": c["coverage"], "calib_n": c["n"]}, ev
 
 
 def _reliability(ev, h, path):
@@ -187,24 +190,63 @@ def _confusion(ev, h, path):
     fig.savefig(path, dpi=130); plt.close(fig)
 
 
-SIM_COLS = ["h", "fold", "pham_vi", "m", "coverage", "n", "n_days", "mean_net", "ci_lo", "ci_hi", "rand_median", "share_tranh", "share_khong_du", "calib_mean_net"]
+def _p_vs_real(d):
+    """Mean p_up and p_down against how often Up and Down happened."""
+    return (f"p_up {d['p_up'].mean():.3f}, tần suất Tăng {(d['y_true'] == 2).mean():.3f}; "
+            f"p_down {d['p_down'].mean():.3f}, tần suất Giảm {(d['y_true'] == 0).mean():.3f}")
+
+
+def _calibration(ev, h):
+    """(p_up overstated on eval?, line with predicted against observed on all eval and on the rows the rule buys)."""
+    b = ev[(ev["p_up"] - ev["p_down"] >= ev["m"]) & ev["net_ret"].notna()]
+    return ev["p_up"].mean() > (ev["y_true"] == 2).mean(), f"T+{h}, toàn eval: {_p_vs_real(ev)}. {len(b)} lệnh của luật: {_p_vs_real(b) if len(b) else 'không có'}."
+
+
+def _negative_calib(sim):
+    """Folds whose chosen margin still had a negative mean net on calib; the rule trades on them anyway."""
+    d = sim[(sim["pham_vi"] == "theo luật") & (sim["calib_mean_net"] < 0)]
+    return ", ".join(f"h{r.h} {r.fold} ({r.calib_mean_net:+.4f}, độ phủ calib {r.calib_coverage:.1%}, {int(r.calib_n)} lệnh)" for r in d.itertuples()) or "không có ô nào"
+
+
+SIM_COLS = ["h", "fold", "pham_vi", "m", "coverage", "n", "n_days", "mean_net", "ci_lo", "ci_hi", "rand_median", "share_tranh", "share_khong_du", "calib_mean_net", "calib_coverage", "calib_n"]
+
+
+def _cells(rows, extra=lambda r: ""):
+    return ", ".join(f"{r['fold']} ({r['mean_net']:+.4f}, độ phủ {r['coverage']:.1%}, {int(r['n'])} lệnh{extra(r)})" for _, r in rows.iterrows()) or "không có"
+
+
+def _verdict(pool):
+    """A loss is said as a loss; only a CI above zero and above random counts as support."""
+    no_use = "Không dùng nhãn \"Ưu tiên mua\" ra quyết định."
+    less_bad = " Cao hơn ngẫu nhiên chỉ có nghĩa là lỗ ít hơn." if pool["mean_net"] > pool["rand_median"] else ""
+    if pool["n"] == 0:
+        return "Không có lệnh nào."
+    if pool["ci_hi"] < 0:
+        return f"**Luật lỗ sau phí:** trung bình âm và cả CI nằm dưới 0, bằng chứng nghiêng về lỗ chứ không chỉ là thiếu bằng chứng.{less_bad} {no_use}"
+    if pool["mean_net"] < 0:
+        return f"**Luật không có lãi:** trung bình âm, CI chứa 0.{less_bad} {no_use}"
+    if pool["ci_lo"] > 0 and pool["mean_net"] > pool["rand_median"]:
+        return "CI nằm trên 0 và trung bình vượt ngẫu nhiên, nhưng đây là vùng phát triển nên chưa phải bằng chứng cuối."
+    return f"Trung bình dương nhưng chưa đủ bằng chứng. {no_use}"
 
 
 def _h_section(h, fusion, sim, perm, shares):
-    """Plain conclusion of one horizon, read off the tables; only a CI above zero and above random counts as support."""
-    pool = sim[(sim["h"] == h) & (sim["fold"] == "gộp") & (sim["pham_vi"] == "theo luật")].iloc[0]
+    """Plain conclusion of one horizon, read off the tables."""
+    rule = sim[(sim["h"] == h) & (sim["pham_vi"] == "theo luật")]
+    pool, cells = rule[rule["fold"] == "gộp"].iloc[0], rule[rule["fold"] != "gộp"]
     every = sim[(sim["h"] == h) & (sim["fold"] == "gộp") & (sim["pham_vi"] == "toàn mẫu")].iloc[0]
     p = perm[perm["h"] == h]
-    help_ = [g for g, gg in p.groupby("group") if (gg["lo"] > 0).sum() * 3 >= 2 * len(gg)]
+    help_ = [f"{g} ({', '.join(f'{r.fold} {r.delta_logloss:+.4f}' for r in gg.itertuples())})" for g, gg in p.groupby("group") if (gg["lo"] > 0).sum() * 3 >= 2 * len(gg)]
     s = shares[shares["h"] == h].groupby("group")["share"].mean().sort_values(ascending=False)
-    ok = pool["n"] > 0 and pool["ci_lo"] > 0 and pool["mean_net"] > pool["rand_median"]
     return [f"**T+{h}** (fusion khóa {fusion}). Theo luật: độ phủ {pool['coverage']:.1%}, {int(pool['n'])} lệnh, {int(pool['n_days'])} phiên, "
             f"lợi suất ròng trung bình {pool['mean_net']:+.4f} (CI 95% {pool['ci_lo']:+.4f} đến {pool['ci_hi']:+.4f}), ngẫu nhiên cùng số lệnh {pool['rand_median']:+.4f}. "
             f"Toàn mẫu: độ phủ {every['coverage']:.0%}, {int(every['n'])} lệnh, {every['mean_net']:+.4f}. "
-            + ("CI nằm trên 0 và vượt ngẫu nhiên, nhưng đây là vùng phát triển nên chưa phải bằng chứng cuối." if ok
-               else "CI không nằm hẳn trên 0 hoặc không vượt ngẫu nhiên, nên **chưa đủ bằng chứng để dùng nhãn \"Ưu tiên mua\" ra quyết định**."),
+            + _verdict(pool),
             "",
-            f"Nhóm làm log-loss tăng rõ khi hoán vị (lo > 0 ở ít nhất 2/3 fold): {', '.join(help_) or 'không có'}. "
+            f"Fold có CI nằm hẳn dưới 0: {_cells(cells[cells['ci_hi'] < 0])}. "
+            f"Fold kém hơn ngẫu nhiên: {_cells(cells[cells['mean_net'] < cells['rand_median']], lambda r: f', ngẫu nhiên {r.rand_median:+.4f}')}.",
+            "",
+            f"Nhóm làm log-loss tăng khi hoán vị (lo > 0 ở ít nhất 2/3 fold; một seed, CI chưa hiệu chỉnh đa so sánh): {', '.join(help_) or 'không có'}. "
             f"Tỷ trọng SHAP trung bình: {', '.join(f'{g} {v:.0%}' for g, v in s.items())}.", ""]
 
 
@@ -212,7 +254,7 @@ def write_report(run_dir, lock_path, build, out=C.REPORTS / "mmf_explain.md", fi
     """Per (h, fold) of the lock: permutation, SHAP, attention weights, LIME, margin and simulation; figures per h. build(h, fold name) -> Bundle."""
     lock = json.loads(Path(lock_path).read_text())
     fig_dir = Path(fig_dir); fig_dir.mkdir(parents=True, exist_ok=True)
-    perm, shares, attn, cases, sims, figs, used = [], [], [], [], [], [], []
+    perm, shares, attn, cases, sims, figs, used, calibration = [], [], [], [], [], [], [], []
     for hs, entry in lock.items():
         h, fusion = int(hs), entry["fusion"]
         arm = explained_arm(fusion)
@@ -239,10 +281,12 @@ def write_report(run_dir, lock_path, build, out=C.REPORTS / "mmf_explain.md", fi
         pool = ev.assign(p_up=ev["p_up"] - ev["m"])
         sims.append({**R.simulate(pool, 0.0, h), **_label_shares(ev), "fold": "gộp", "m": np.nan, "pham_vi": "theo luật"})
         sims.append({**R.simulate(ev, -1.0, h), "fold": "gộp", "m": np.nan, "pham_vi": "toàn mẫu"})
+        calibration.append(_calibration(ev, h))
         _reliability(ev, h, fig_dir / f"reliability_h{h}.png")
         _confusion(ev, h, fig_dir / f"confusion_h{h}.png")
         figs += [f"![Reliability T+{h}]({fig_dir.name}/reliability_h{h}.png)", "", f"![Ma trận nhầm lẫn T+{h}]({fig_dir.name}/confusion_h{h}.png)", ""]
     perm, shares, sim = pd.concat(perm, ignore_index=True), pd.concat(shares, ignore_index=True), pd.DataFrame(sims)
+    table = sim.assign(calib_n=[("" if pd.isna(v) else str(int(v))) for v in sim["calib_n"]])
     summary = [line for hs, entry in lock.items() for line in _h_section(int(hs), entry["fusion"], sim, perm, shares)]
     ids = sorted({e.get("dataset_id", "?") for e in lock.values()})
     lines = [
@@ -256,11 +300,15 @@ def write_report(run_dir, lock_path, build, out=C.REPORTS / "mmf_explain.md", fi
         "## Kết luận theo h", "", *summary,
         "## Luật khuyến nghị", "",
         f"- **{R.RULES[0]}**: `p_up - p_down >= m`.", f"- **{R.RULES[1]}**: `p_down - p_up >= m`.", f"- **{R.RULES[2]}**: còn lại.", "",
-        "`m` chọn trên calib của từng fold từ xác suất ensemble (trung bình 5 seed), lấy trung bình lợi suất ròng cao nhất với ít nhất 50 lệnh; không có `m` đạt thì không có lệnh.", "",
+        "`m` chọn trên calib của từng fold từ xác suất ensemble (trung bình 5 seed), lấy trung bình lợi suất ròng cao nhất với ít nhất 50 lệnh; không có `m` đạt thì không có lệnh. "
+        "Lệnh có phiên bán t+h+1 vượt cuối khối bị bỏ khỏi cả việc chọn `m` lẫn mô phỏng (các hàng ở phiên có t+h trùng cuối khối), nên calib không đọc giá của eval và eval không đọc giá sau khối.", "",
+        f"Luật không đòi calib dương: `m` tốt nhất có trung bình calib âm thì luật vẫn giao dịch và kết quả vẫn được tính. Các ô có trung bình calib âm: {_negative_calib(sim)}.", "",
         "## Kết quả mô phỏng kèm độ phủ", "",
         "`coverage` (độ phủ) là tỷ lệ hàng eval có lợi suất được gắn \"Ưu tiên mua\". `toàn mẫu` là mua mọi hàng, để so sánh. `gộp` nối eval của ba fold, mỗi fold giữ `m` của nó. "
-        "`rand_median` là trung vị của 1000 lần rút ngẫu nhiên cùng số lệnh. CI 95% theo block bootstrap phiên. Độ phủ thấp nghĩa là kết quả chỉ nói về phần nhỏ đó; `n` dưới khoảng 30 thì CI gần như không đọc được.", "",
-        CP._md(sim, SIM_COLS), "",
+        "`rand_median` là trung vị của 1000 lần rút ngẫu nhiên cùng số lệnh. CI 95% theo block bootstrap phiên. "
+        "`calib_mean_net`, `calib_coverage`, `calib_n` là lợi suất ròng trung bình, độ phủ và số lệnh trên calib tại `m` đã chọn: đó là số dùng để chọn `m`, không phải kết quả ngoài mẫu."
+        " Độ phủ thấp nghĩa là kết quả chỉ nói về phần nhỏ đó; `n` dưới khoảng 30 thì CI gần như không đọc được.", "",
+        CP._md(table, SIM_COLS), "",
         "## Trọng số attention theo nhánh", "",
         "Trọng số attention của `fusion_attention` seed 59 (`net.last_weights`), trung bình trên hàng eval. Trọng số cho biết model chú ý nhánh nào, không chứng minh nhánh đó giúp dự báo.", "",
         CP._md(pd.DataFrame(attn), ["h", "fold", *BRANCHES]), "",
@@ -276,7 +324,10 @@ def write_report(run_dir, lock_path, build, out=C.REPORTS / "mmf_explain.md", fi
         "`gbm_all` refit trên train. Ba hàng eval chọn theo xác suất của chính model, không theo kết quả. Trọng số giải thích lớp được dự báo; dương là đẩy về lớp đó. Ngưỡng trong tên đặc trưng là giá trị đã chuẩn hóa theo train.", "",
         pd.DataFrame(cases).to_markdown(index=False, floatfmt=".3f"), "",
         "## Độ tin cậy xác suất và ma trận nhầm lẫn", "",
-        "Xác suất ensemble của fusion khóa trên eval gộp. Ma trận dùng lớp quyết định theo alpha và prior của từng fold.", "", *figs,
+        "Xác suất ensemble của fusion khóa trên eval gộp. Ma trận dùng lớp quyết định theo alpha và prior của từng fold.", "",
+        ("Hiệu chỉnh chưa đúng trên eval: p_up bị đánh giá cao (xem hình reliability), và điều này làm `p_up - p_down` rộng ra đúng về phía luật mua, nên `m` không đọc được như một mức tin cậy thật."
+         if any(over for over, _ in calibration) else "Trung bình p_up trên eval không vượt tần suất Tăng thực tế."), "",
+        *[f"- {line}" for _, line in calibration], "", *figs,
     ]
     out = Path(out); out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines))

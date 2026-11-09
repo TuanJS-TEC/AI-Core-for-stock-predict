@@ -16,6 +16,16 @@ def trade_return(frame, h, cost=C.AC.COST):
     return (np.log(g["close"].shift(-(h + 1)) / g["open"].shift(-1)) - cost).reindex(frame.index)
 
 
+def with_net_ret(rows, frame, h, block_end, cost=C.AC.COST):
+    """`rows` of one block plus net_ret, from prices up to block_end only.
+
+    The exit t+h+1 is one session later than the label's t+h, so the block's last rows would read the next block.
+    Their net_ret is NaN here, and pick_margin and simulate leave them out."""
+    f = frame[frame["as_of_session"] <= block_end]
+    ret = pd.DataFrame({"symbol": f["symbol"].astype(str), "as_of_session": f["as_of_session"], "net_ret": trade_return(f, h, cost)})
+    return rows.merge(ret, on=["symbol", "as_of_session"], how="left", validate="one_to_one")
+
+
 def pick_margin(p_up, p_down, net_ret, grid=np.arange(0, 0.51, 0.02), min_n=50):
     """Margin with the best mean net return over at least min_n LONG rows (ties keep the smaller); None when no margin has them."""
     gap, net = np.asarray(p_up) - np.asarray(p_down), np.asarray(net_ret, dtype=float)

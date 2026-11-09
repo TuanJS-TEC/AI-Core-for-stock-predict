@@ -66,3 +66,13 @@ def test_simulate_reports_coverage_with_result():
 def test_simulate_without_trades_reports_zero_coverage():
     out = R.simulate(_toy_rows(), 0.9, 2)
     assert out["coverage"] == 0 and out["n"] == 0 and np.isnan(out["mean_net"]) and np.isnan(out["ci_lo"])
+
+
+def test_block_rows_read_no_price_after_the_block():
+    f, end = _toy_prices(), pd.bdate_range("2024-01-01", periods=8)[5]
+    rows = f.loc[f.as_of_session <= end, ["symbol", "as_of_session"]]
+    a = R.with_net_ret(rows, f, 2, end, cost=0.0)
+    assert a.net_ret.iloc[2] == pytest.approx(np.log(f.close.iloc[5] / f.open.iloc[3]))     # exit on the block's last session stays
+    assert a.net_ret.iloc[3:].isna().all()                                                  # exit past it does not
+    later = f.assign(close=f.close.where(f.as_of_session <= end, 999.0), open=f.open.where(f.as_of_session <= end, 999.0))
+    pd.testing.assert_series_equal(a.net_ret, R.with_net_ret(rows, later, 2, end, cost=0.0).net_ret)

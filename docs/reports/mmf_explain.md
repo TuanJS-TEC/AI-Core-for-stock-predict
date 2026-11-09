@@ -13,13 +13,17 @@ Dataset: 24251acc1a5695bdcc2c8e8e6b2527669eb84b6ece095d6f3a5e6a929f2ae4ad. Arm g
 
 ## Kết luận theo h
 
-**T+2** (fusion khóa fusion_attention). Theo luật: độ phủ 19.4%, 533 lệnh, 136 phiên, lợi suất ròng trung bình -0.0054 (CI 95% -0.0093 đến -0.0003), ngẫu nhiên cùng số lệnh -0.0081. Toàn mẫu: độ phủ 100%, 2745 lệnh, -0.0080. CI không nằm hẳn trên 0 hoặc không vượt ngẫu nhiên, nên **chưa đủ bằng chứng để dùng nhãn "Ưu tiên mua" ra quyết định**.
+**T+2** (fusion khóa fusion_attention). Theo luật: độ phủ 19.4%, 523 lệnh, 133 phiên, lợi suất ròng trung bình -0.0054 (CI 95% -0.0094 đến -0.0004), ngẫu nhiên cùng số lệnh -0.0080. Toàn mẫu: độ phủ 100%, 2700 lệnh, -0.0080. **Luật lỗ sau phí:** trung bình âm và cả CI nằm dưới 0, bằng chứng nghiêng về lỗ chứ không chỉ là thiếu bằng chứng. Cao hơn ngẫu nhiên chỉ có nghĩa là lỗ ít hơn. Không dùng nhãn "Ưu tiên mua" ra quyết định.
 
-Nhóm làm log-loss tăng rõ khi hoán vị (lo > 0 ở ít nhất 2/3 fold): không có. Tỷ trọng SHAP trung bình: price 76%, text 19%, fund 5%.
+Fold có CI nằm hẳn dưới 0: B (-0.0062, độ phủ 30.9%, 278 lệnh). Fold kém hơn ngẫu nhiên: C (-0.0085, độ phủ 8.8%, 79 lệnh, ngẫu nhiên -0.0050).
 
-**T+5** (fusion khóa fusion_attention). Theo luật: độ phủ 9.7%, 254 lệnh, 59 phiên, lợi suất ròng trung bình -0.0049 (CI 95% -0.0238 đến +0.0274), ngẫu nhiên cùng số lệnh -0.0111. Toàn mẫu: độ phủ 100%, 2610 lệnh, -0.0111. CI không nằm hẳn trên 0 hoặc không vượt ngẫu nhiên, nên **chưa đủ bằng chứng để dùng nhãn "Ưu tiên mua" ra quyết định**.
+Nhóm làm log-loss tăng khi hoán vị (lo > 0 ở ít nhất 2/3 fold; một seed, CI chưa hiệu chỉnh đa so sánh): không có. Tỷ trọng SHAP trung bình: price 76%, text 19%, fund 5%.
 
-Nhóm làm log-loss tăng rõ khi hoán vị (lo > 0 ở ít nhất 2/3 fold): fund. Tỷ trọng SHAP trung bình: price 66%, text 24%, fund 10%.
+**T+5** (fusion khóa fusion_attention). Theo luật: độ phủ 9.8%, 252 lệnh, 57 phiên, lợi suất ròng trung bình -0.0046 (CI 95% -0.0239 đến +0.0294), ngẫu nhiên cùng số lệnh -0.0111. Toàn mẫu: độ phủ 100%, 2565 lệnh, -0.0111. **Luật không có lãi:** trung bình âm, CI chứa 0. Cao hơn ngẫu nhiên chỉ có nghĩa là lỗ ít hơn. Không dùng nhãn "Ưu tiên mua" ra quyết định.
+
+Fold có CI nằm hẳn dưới 0: không có. Fold kém hơn ngẫu nhiên: C (-0.0196, độ phủ 2.7%, 23 lệnh, ngẫu nhiên -0.0039).
+
+Nhóm làm log-loss tăng khi hoán vị (lo > 0 ở ít nhất 2/3 fold; một seed, CI chưa hiệu chỉnh đa so sánh): fund (A +0.0014, B +0.0024, C +0.0043). Tỷ trọng SHAP trung bình: price 66%, text 24%, fund 10%.
 
 ## Luật khuyến nghị
 
@@ -27,30 +31,32 @@ Nhóm làm log-loss tăng rõ khi hoán vị (lo > 0 ở ít nhất 2/3 fold): f
 - **Tránh**: `p_down - p_up >= m`.
 - **Không đủ tin cậy**: còn lại.
 
-`m` chọn trên calib của từng fold từ xác suất ensemble (trung bình 5 seed), lấy trung bình lợi suất ròng cao nhất với ít nhất 50 lệnh; không có `m` đạt thì không có lệnh.
+`m` chọn trên calib của từng fold từ xác suất ensemble (trung bình 5 seed), lấy trung bình lợi suất ròng cao nhất với ít nhất 50 lệnh; không có `m` đạt thì không có lệnh. Lệnh có phiên bán t+h+1 vượt cuối khối bị bỏ khỏi cả việc chọn `m` lẫn mô phỏng (các hàng ở phiên có t+h trùng cuối khối), nên calib không đọc giá của eval và eval không đọc giá sau khối.
+
+Luật không đòi calib dương: `m` tốt nhất có trung bình calib âm thì luật vẫn giao dịch và kết quả vẫn được tính. Các ô có trung bình calib âm: h2 B (-0.0024, độ phủ calib 34.4%, 310 lệnh), h2 C (-0.0034, độ phủ calib 9.1%, 82 lệnh).
 
 ## Kết quả mô phỏng kèm độ phủ
 
-`coverage` (độ phủ) là tỷ lệ hàng eval có lợi suất được gắn "Ưu tiên mua". `toàn mẫu` là mua mọi hàng, để so sánh. `gộp` nối eval của ba fold, mỗi fold giữ `m` của nó. `rand_median` là trung vị của 1000 lần rút ngẫu nhiên cùng số lệnh. CI 95% theo block bootstrap phiên. Độ phủ thấp nghĩa là kết quả chỉ nói về phần nhỏ đó; `n` dưới khoảng 30 thì CI gần như không đọc được.
+`coverage` (độ phủ) là tỷ lệ hàng eval có lợi suất được gắn "Ưu tiên mua". `toàn mẫu` là mua mọi hàng, để so sánh. `gộp` nối eval của ba fold, mỗi fold giữ `m` của nó. `rand_median` là trung vị của 1000 lần rút ngẫu nhiên cùng số lệnh. CI 95% theo block bootstrap phiên. `calib_mean_net`, `calib_coverage`, `calib_n` là lợi suất ròng trung bình, độ phủ và số lệnh trên calib tại `m` đã chọn: đó là số dùng để chọn `m`, không phải kết quả ngoài mẫu. Độ phủ thấp nghĩa là kết quả chỉ nói về phần nhỏ đó; `n` dưới khoảng 30 thì CI gần như không đọc được.
 
-|   h | fold   | pham_vi   |        m |   coverage |    n |   n_days |   mean_net |   ci_lo |   ci_hi |   rand_median |   share_tranh |   share_khong_du |   calib_mean_net |
-|----:|:-------|:----------|---------:|-----------:|-----:|---------:|-----------:|--------:|--------:|--------------:|--------------:|-----------------:|-----------------:|
-|   2 | A      | theo luật |   0.0400 |     0.1902 |  174 |       49 |    -0.0029 | -0.0115 |  0.0055 |       -0.0082 |        0.0022 |           0.8077 |           0.0034 |
-|   2 | A      | toàn mẫu  | nan      |     1.0000 |  915 |       61 |    -0.0081 | -0.0179 |  0.0003 |       -0.0081 |      nan      |         nan      |         nan      |
-|   2 | B      | theo luật |   0.0600 |     0.3049 |  279 |       48 |    -0.0059 | -0.0087 | -0.0021 |       -0.0100 |        0.2273 |           0.4678 |          -0.0028 |
-|   2 | B      | toàn mẫu  | nan      |     1.0000 |  915 |       61 |    -0.0100 | -0.0155 | -0.0058 |       -0.0100 |      nan      |         nan      |         nan      |
-|   2 | C      | theo luật |   0.0800 |     0.0874 |   80 |       39 |    -0.0091 | -0.0169 |  0.0031 |       -0.0057 |        0.0361 |           0.8765 |          -0.0034 |
-|   2 | C      | toàn mẫu  | nan      |     1.0000 |  915 |       61 |    -0.0057 | -0.0106 | -0.0006 |       -0.0057 |      nan      |         nan      |         nan      |
-|   2 | gộp    | theo luật | nan      |     0.1942 |  533 |      136 |    -0.0054 | -0.0093 | -0.0003 |       -0.0081 |        0.0885 |           0.7173 |         nan      |
-|   2 | gộp    | toàn mẫu  | nan      |     1.0000 | 2745 |      183 |    -0.0080 | -0.0121 | -0.0040 |       -0.0080 |      nan      |         nan      |         nan      |
-|   5 | A      | theo luật |   0.1000 |     0.2609 |  227 |       40 |    -0.0034 | -0.0208 |  0.0421 |       -0.0111 |        0.0207 |           0.7184 |           0.0209 |
-|   5 | A      | toàn mẫu  | nan      |     1.0000 |  870 |       58 |    -0.0114 | -0.0323 |  0.0076 |       -0.0114 |      nan      |         nan      |         nan      |
-|   5 | B      | theo luật |   0.1200 |     0.0034 |    3 |        2 |     0.0162 | -0.0029 |  0.0258 |       -0.0162 |        0.0000 |           0.9966 |           0.0057 |
-|   5 | B      | toàn mẫu  | nan      |     1.0000 |  870 |       58 |    -0.0170 | -0.0286 | -0.0077 |       -0.0170 |      nan      |         nan      |         nan      |
-|   5 | C      | theo luật |   0.0800 |     0.0276 |   24 |       17 |    -0.0217 | -0.0407 |  0.0070 |       -0.0055 |        0.0816 |           0.8908 |           0.0074 |
-|   5 | C      | toàn mẫu  | nan      |     1.0000 |  870 |       58 |    -0.0051 | -0.0166 |  0.0051 |       -0.0051 |      nan      |         nan      |         nan      |
-|   5 | gộp    | theo luật | nan      |     0.0973 |  254 |       59 |    -0.0049 | -0.0238 |  0.0274 |       -0.0111 |        0.0341 |           0.8686 |         nan      |
-|   5 | gộp    | toàn mẫu  | nan      |     1.0000 | 2610 |      174 |    -0.0111 | -0.0203 | -0.0028 |       -0.0111 |      nan      |         nan      |         nan      |
+|   h | fold   | pham_vi   |        m |   coverage |    n |   n_days |   mean_net |   ci_lo |   ci_hi |   rand_median |   share_tranh |   share_khong_du |   calib_mean_net |   calib_coverage |   calib_n |
+|----:|:-------|:----------|---------:|-----------:|-----:|---------:|-----------:|--------:|--------:|--------------:|--------------:|-----------------:|-----------------:|-----------------:|----------:|
+|   2 | A      | theo luật |   0.0400 |     0.1844 |  166 |       48 |    -0.0026 | -0.0121 |  0.0049 |       -0.0082 |        0.0022 |           0.8133 |           0.0040 |           0.1022 |        92 |
+|   2 | A      | toàn mẫu  | nan      |     1.0000 |  900 |       60 |    -0.0083 | -0.0178 |  0.0003 |       -0.0083 |      nan      |         nan      |         nan      |         nan      |           |
+|   2 | B      | theo luật |   0.0600 |     0.3089 |  278 |       47 |    -0.0062 | -0.0086 | -0.0028 |       -0.0107 |        0.2189 |           0.4722 |          -0.0024 |           0.3444 |       310 |
+|   2 | B      | toàn mẫu  | nan      |     1.0000 |  900 |       60 |    -0.0107 | -0.0158 | -0.0065 |       -0.0107 |      nan      |         nan      |         nan      |         nan      |           |
+|   2 | C      | theo luật |   0.0800 |     0.0878 |   79 |       38 |    -0.0085 | -0.0168 |  0.0052 |       -0.0050 |        0.0356 |           0.8767 |          -0.0034 |           0.0911 |        82 |
+|   2 | C      | toàn mẫu  | nan      |     1.0000 |  900 |       60 |    -0.0050 | -0.0107 | -0.0000 |       -0.0050 |      nan      |         nan      |         nan      |         nan      |           |
+|   2 | gộp    | theo luật | nan      |     0.1937 |  523 |      133 |    -0.0054 | -0.0094 | -0.0004 |       -0.0080 |        0.0856 |           0.7207 |         nan      |         nan      |           |
+|   2 | gộp    | toàn mẫu  | nan      |     1.0000 | 2700 |      180 |    -0.0080 | -0.0124 | -0.0040 |       -0.0080 |      nan      |         nan      |         nan      |         nan      |           |
+|   5 | A      | theo luật |   0.1000 |     0.2655 |  227 |       40 |    -0.0034 | -0.0208 |  0.0424 |       -0.0113 |        0.0199 |           0.7146 |           0.0209 |           0.1181 |       101 |
+|   5 | A      | toàn mẫu  | nan      |     1.0000 |  855 |       57 |    -0.0115 | -0.0326 |  0.0080 |       -0.0115 |      nan      |         nan      |         nan      |         nan      |           |
+|   5 | B      | theo luật |   0.1200 |     0.0023 |    2 |        1 |     0.0258 |  0.0258 |  0.0258 |       -0.0167 |        0.0000 |           0.9977 |           0.0057 |           0.0620 |        53 |
+|   5 | B      | toàn mẫu  | nan      |     1.0000 |  855 |       57 |    -0.0178 | -0.0299 | -0.0076 |       -0.0178 |      nan      |         nan      |         nan      |         nan      |           |
+|   5 | C      | theo luật |   0.0800 |     0.0269 |   23 |       16 |    -0.0196 | -0.0399 |  0.0098 |       -0.0039 |        0.0830 |           0.8901 |           0.0041 |           0.0678 |        58 |
+|   5 | C      | toàn mẫu  | nan      |     1.0000 |  855 |       57 |    -0.0041 | -0.0166 |  0.0065 |       -0.0041 |      nan      |         nan      |         nan      |         nan      |           |
+|   5 | gộp    | theo luật | nan      |     0.0982 |  252 |       57 |    -0.0046 | -0.0239 |  0.0294 |       -0.0111 |        0.0343 |           0.8674 |         nan      |         nan      |           |
+|   5 | gộp    | toàn mẫu  | nan      |     1.0000 | 2565 |      171 |    -0.0111 | -0.0207 | -0.0027 |       -0.0111 |      nan      |         nan      |         nan      |         nan      |           |
 
 ## Trọng số attention theo nhánh
 
@@ -179,6 +185,11 @@ Log-loss seed 59 đã hiệu chỉnh nhiệt độ, sau hoán vị trừ trướ
 ## Độ tin cậy xác suất và ma trận nhầm lẫn
 
 Xác suất ensemble của fusion khóa trên eval gộp. Ma trận dùng lớp quyết định theo alpha và prior của từng fold.
+
+Hiệu chỉnh chưa đúng trên eval: p_up bị đánh giá cao (xem hình reliability), và điều này làm `p_up - p_down` rộng ra đúng về phía luật mua, nên `m` không đọc được như một mức tin cậy thật.
+
+- T+2, toàn eval: p_up 0.306, tần suất Tăng 0.251; p_down 0.296, tần suất Giảm 0.322. 523 lệnh của luật: p_up 0.320, tần suất Tăng 0.228; p_down 0.232, tần suất Giảm 0.252.
+- T+5, toàn eval: p_up 0.320, tần suất Tăng 0.249; p_down 0.293, tần suất Giảm 0.346. 252 lệnh của luật: p_up 0.398, tần suất Tăng 0.298; p_down 0.249, tần suất Giảm 0.270.
 
 ![Reliability T+2](mmf_figures/reliability_h2.png)
 

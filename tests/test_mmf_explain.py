@@ -1,10 +1,11 @@
 import json
+from types import SimpleNamespace
 
 import numpy as np, pandas as pd, pytest, torch
 from scipy.special import softmax
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from mmf import config as C, experiment as EX, explain as X
+from mmf import config as C, experiment as EX, explain as X, recommend as R
 from mmf.models import FusionNet
 from mmf.windows import Samples
 from test_mmf_experiment import FOLD, SYMS, fake_frame
@@ -100,7 +101,7 @@ def test_cli_report_end_to_end(tmp_path, monkeypatch):
     lock.write_text(json.dumps({"5": {"fusion": "fusion_attention", "dataset_id": "tinydataset", "picks": {"A": {}}}}))
     out = X.write_report(run, lock, lambda h, name: b, tmp_path / "x.md", tmp_path / "figs")
     text = out.read_text()
-    for part in ("T+2", "chưa xác nhận", "Độ phủ", "Permutation", "SHAP", "LIME", "Trọng số attention", "reliability_h5.png"):
+    for part in ("T+2", "chưa xác nhận", "Độ phủ", "Permutation", "SHAP", "LIME", "Trọng số attention", "reliability_h5.png", "calib_coverage", "calib_n", "calib âm"):
         assert part in text
     assert (tmp_path / "figs/reliability_h5.png").stat().st_size and (tmp_path / "figs/confusion_h5.png").stat().st_size
 
@@ -115,3 +116,64 @@ def test_cli_refuses_weights_that_do_not_reproduce_the_run(tmp_path):
     torch.save(state, pt)
     with pytest.raises(ValueError, match="do not reproduce"):
         X.load_checked_net(b, run, "fusion_attention")
+
+
+def _flat_market(bump_day=None):
+    """5 symbols, 200 flat sessions (every trade earns -cost); calib ends at session 119, eval at 179, h = 2."""
+    days = pd.bdate_range("2024-01-01", periods=200)
+    f = pd.DataFrame({"symbol": np.tile(list("ABCDE"), 200), "as_of_session": np.repeat(days, 5), "open": 10.0, "close": 10.0})
+    if bump_day is not None:
+        f.loc[f.as_of_session == days[bump_day], "close"] = 30.0
+    fold = SimpleNamespace(name="A", calib_end=days[119], eval_end=days[179])
+    return SimpleNamespace(frame=f, h=2, fold=fold), days
+
+
+def _block_preds(days, start, stop, block, wide_from):
+    """Rows as split_samples keeps them (t + h inside the block); the last sessions have the widest p_up - p_down."""
+    d = pd.DataFrame({"symbol": np.tile(list("ABCDE"), stop - start), "as_of_session": np.repeat(days[start:stop], 5), "block": block})
+    return d.assign(fold="A", arm="a", p_down=0.3, p_up=np.where(d.as_of_session >= days[wide_from], 0.7, 0.35))
+
+
+@pytest.mark.parametrize("bump_day", [120, 180])     # first session of eval, first session after eval
+def test_margin_and_scores_read_no_price_after_their_block(bump_day):
+    """The rows of t = 117 and t = 177 would exit on sessions 120 and 180. A price there must change nothing."""
+    b, days = _flat_market()
+    preds = pd.concat([_block_preds(days, 60, 118, "calib", 108), _block_preds(days, 120, 178, "eval", 168)], ignore_index=True)
+    base, _ = X._simulations(preds, b, "a")
+    moved, _ = X._simulations(preds, _flat_market(bump_day)[0], "a")
+    keys = ["m", "calib_mean_net", "calib_coverage", "calib_n", "mean_net", "coverage", "n"]
+    assert {k: moved[k] for k in keys} == {k: base[k] for k in keys}
+    assert base["m"] == 0.0 and base["calib_n"] == 57 * 5 and base["n"] == 57 * 5     # t = 117 and t = 177 are out
+
+
+def _section_tables(mean, lo, hi, rand):
+    rows = [{"h": 2, "fold": f, "pham_vi": "theo luật", "coverage": 0.2, "n": 100, "n_days": 40, "mean_net": mean, "ci_lo": lo, "ci_hi": hi, "rand_median": rand}
+            for f in ("A", "gộp")] + [{"h": 2, "fold": "gộp", "pham_vi": "toàn mẫu", "coverage": 1.0, "n": 500, "n_days": 60, "mean_net": -0.01}]
+    perm = pd.DataFrame({"h": 2, "fold": list("ABC"), "group": "fund", "delta_logloss": [0.001, 0.002, 0.003], "lo": [0.0005, 0.001, -0.001]})
+    return pd.DataFrame(rows), perm, pd.DataFrame({"h": 2, "group": ["fund"], "share": [1.0]})
+
+
+def test_conclusion_states_a_loss_plainly():
+    text = "\n".join(X._h_section(2, "fusion_attention", *_section_tables(-0.005, -0.009, -0.001, -0.008)))
+    assert "cả CI nằm dưới 0" in text and "-0.0050" in text
+    assert "một seed, CI chưa hiệu chỉnh" in text and "fund (A +0.0010, B +0.0020, C +0.0030)" in text and "tăng rõ" not in text
+
+
+def test_conclusion_names_the_fold_worse_than_random_with_its_coverage():
+    text = "\n".join(X._h_section(2, "fusion_attention", *_section_tables(-0.009, -0.02, 0.01, -0.005)))
+    assert "cả CI nằm dưới 0" not in text and "CI chứa 0" in text
+    assert "A (-0.0090, độ phủ 20.0%, 100 lệnh, ngẫu nhiên -0.0050)" in text
+
+
+def test_calibration_says_when_p_up_is_overstated():
+    ev = pd.DataFrame({"p_up": [0.6, 0.6, 0.2], "p_down": [0.2, 0.2, 0.5], "y_true": [0, 1, 0], "m": 0.1, "net_ret": [0.01, np.nan, 0.01]})
+    over, line = X._calibration(ev, 2)
+    assert over and "1 lệnh của luật: p_up 0.600, tần suất Tăng 0.000" in line
+    assert not X._calibration(ev.assign(y_true=[2, 2, 2]), 2)[0]
+
+
+def test_label_shares_and_coverage_share_one_base():
+    ev = pd.DataFrame({"p_up": [0.6, 0.6, 0.2, 0.3], "p_down": [0.2, 0.2, 0.5, 0.3], "m": 0.1, "net_ret": [0.01, np.nan, 0.01, 0.01],
+                       "as_of_session": pd.bdate_range("2024-01-01", periods=4)})
+    k = X._label_shares(ev)
+    assert R.simulate(ev, 0.1, 2)["coverage"] + k["share_tranh"] + k["share_khong_du"] == pytest.approx(1)

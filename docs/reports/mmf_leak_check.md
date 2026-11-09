@@ -12,3 +12,11 @@ Hoán vị nhãn train giữa các ngày (cùng một phép hoán vị cho mọi
 | 2 | C | 0.550 | 0.492 | 0.029 | 0.429 | 0.541 | 1.0945 |
 
 Kết luận: không có độ lệch lên trên 0.5 ở bất kỳ (h, fold) nào. Một lần chạy đơn lẻ có thể đạt 0.61 do ngẫu nhiên, vì eval chỉ khoảng 60 phiên và các mã biến động cùng nhau. Vì vậy một con số AUC đơn lẻ trên eval cần được đọc kèm độ lệch này. Phép kiểm tra này không phát hiện được đặc trưng dùng dữ liệu tương lai; phần đó do test trong `tests/test_mmf_frame.py`, `test_mmf_fundamentals.py`, `test_mmf_text.py` đảm nhận.
+
+## Cách tái lập
+
+```
+.venv_mmf/bin/python -m mmf.leak_check --stock-dir Pipeline_V1.2/stock/snapshots/24251acc1a5695bd --perms 20 --h 5 2 --device cuda
+```
+
+Bảng được ghi ra `data/mmf/leak_check.md` (đổi bằng `--out`), không ghi đè file này. Phép kiểm tra dùng bộ mã hóa LSTM với seed 59 cho mọi fold, không dùng bộ mã hóa đã khóa theo fold và không dùng ensemble 5 seed, nên cột "AUC Tăng/Giảm, nhãn thật" ở đây khác AUC của `dl_price` trong `mmf_dev_report.md`.

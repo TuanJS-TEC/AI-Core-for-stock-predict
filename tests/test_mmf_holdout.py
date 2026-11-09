@@ -9,6 +9,13 @@ SYMS = ["AAA", "BBB", "CCC"]
 LOCK = {"5": {"baseline": "prior_fixed", "unimodal": "dl_price", "fusion": "fusion_attention", "price_kind": "gru", "dataset_id": "devdataset"}}
 
 
+@pytest.fixture(autouse=True)
+def data_dir(tmp_path, monkeypatch):
+    """C.DATA under tmp_path, so the untracked guard of a real holdout run never reaches these tests."""
+    monkeypatch.setattr(C, "DATA", tmp_path / "data")
+    return C.DATA
+
+
 def frame_with(n_days):
     """15 symbols: 10 sessions before HOLDOUT_AFTER, n_days matured after it, then 5 not matured with no label end."""
     days = pd.bdate_range(end=C.HOLDOUT_AFTER, periods=10).append(pd.bdate_range("2026-11-02", periods=n_days + 5))
@@ -83,7 +90,6 @@ def stubbed(tmp_path, monkeypatch):
         X._write_preds(path, b, arm, seed, kind, {k: r.dirichlet(np.ones(3), len(b.samples[k])) for k in X.OUT_BLOCKS}, 0.0)
     monkeypatch.setattr(X, "build_frame", lambda panel, h, version: frame.copy())
     monkeypatch.setattr(X, "run_arm", fake_arm)
-    monkeypatch.setattr(C, "DATA", tmp_path / "data")
     (tmp_path / "lock.json").write_text(json.dumps(LOCK))
     monkeypatch.setattr(H, "LOCK_FILE", tmp_path / "lock.json")
     return SimpleNamespace(frame=frame, trained=trained, guard=guard, panel=SimpleNamespace(dataset_id="d" * 64, ohlcv=dict.fromkeys(SYMS)))
@@ -141,3 +147,44 @@ def test_early_run_never_claims_evidence(tmp_path, stubbed, monkeypatch):
     assert len(table) == 5 and all(r[10] == H.EARLY_VERDICT and r[3] != "" for r in table)
     assert set(blocks) == {C.HOLDOUT_BLOCK} and len(blocks) >= 5 + 1      # R1, R2, three R3, then the simulations
     assert "Có bằng chứng" not in text and json.loads(stubbed.guard.read_text())["early"] is True
+
+
+def test_untracked_guard_alone_refuses(tmp_path, data_dir):
+    (data_dir / "holdout").mkdir(parents=True)
+    (data_dir / "holdout" / "mmf_holdout_h5.lock").write_text("{}")
+    with pytest.raises(ValueError, match="đã chấm"):
+        H.check_ready(H.holdout_rows(frame_with(50)), 5, tmp_path)
+
+
+def test_run_writes_both_guards(tmp_path, stubbed, data_dir):
+    H.run(5, stubbed.panel, guard_dir=tmp_path, device="cpu")
+    assert stubbed.guard.read_text() == (data_dir / "holdout" / "mmf_holdout_h5.lock").read_text()
+    stubbed.guard.unlink()                                                           # a checkout or clean of docs/reports
+    with pytest.raises(ValueError, match="đã chấm"):
+        H.run(5, stubbed.panel, guard_dir=tmp_path, device="cpu")
+
+
+def test_refuses_eval_with_too_little_news_before_any_guard(tmp_path, stubbed, data_dir):
+    f = stubbed.frame
+    f.loc[f["as_of_session"] > pd.Timestamp(C.HOLDOUT_AFTER), "has_news"] = 0.0
+    with pytest.raises(ValueError, match="có tin"):
+        H.run(5, stubbed.panel, guard_dir=tmp_path, device="cpu")
+    assert not stubbed.trained and not stubbed.guard.exists() and not (data_dir / "holdout" / "mmf_holdout_h5.lock").exists()
+
+
+def test_failed_report_is_recovered_from_the_saved_run(tmp_path, stubbed, monkeypatch):
+    real = CP.load_h
+    monkeypatch.setattr(CP, "load_h", lambda *a: (_ for _ in ()).throw(RuntimeError("scoring failed")))
+    with pytest.raises(RuntimeError):
+        H.run(5, stubbed.panel, guard_dir=tmp_path, device="cpu")
+    monkeypatch.setattr(CP, "load_h", real)
+    n = len(stubbed.trained)
+    with pytest.raises(ValueError, match="dữ liệu"):
+        H.write_report(5, SimpleNamespace(dataset_id="e" * 64, ohlcv=stubbed.panel.ohlcv), guard_dir=tmp_path)
+    out = H.write_report(5, stubbed.panel, guard_dir=tmp_path)
+    assert out == tmp_path / "mmf_holdout_h5.md" and len(r_table(out.read_text())) == 5 and len(stubbed.trained) == n and stubbed.guard.exists()
+
+
+def test_report_needs_a_guard(tmp_path, stubbed):
+    with pytest.raises(ValueError, match="chưa"):
+        H.write_report(5, stubbed.panel, guard_dir=tmp_path)

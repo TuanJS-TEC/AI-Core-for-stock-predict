@@ -5,9 +5,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import sync_stock_parquet as sync
 from src import config as C
 from src import snapshot as S
-from src.data import build_panel
+from src.data import build_panel, load_raw
 
 NO_HOLIDAYS = np.array([], "datetime64[D]")
 SYMS = ["AAA", "BBB"]
@@ -101,3 +102,45 @@ def test_revision_isolation(stock):
 
 def test_panel_without_manifest_has_none_dataset_id(stock):
     assert build_panel(SYMS, stock_dir=stock).dataset_id is None
+
+
+def test_injected_raw_gets_no_dataset_id(stock):
+    S.write_manifest(stock, manifest_of(stock))
+    assert build_panel(SYMS, load_raw(SYMS, stock), stock_dir=stock).dataset_id is None
+    assert build_panel(SYMS, stock_dir=stock).dataset_id == manifest_of(stock)["dataset_id"]
+
+
+def test_manifest_not_matching_loaded_data_gives_none(stock):
+    S.write_manifest(stock, manifest_of(stock))
+    write_stock(stock, {"AAA": make_df(10.0, drop=11), "BBB": make_df(20.0, drop=11)})   # parquet đổi, manifest cũ
+    with pytest.warns(UserWarning):
+        assert build_panel(SYMS, stock_dir=stock).dataset_id is None
+
+
+def test_manifest_missing_ticker_gives_none(stock):
+    m = manifest_of(stock)
+    del m["tickers"]["BBB"]
+    S.write_manifest(stock, m)
+    with pytest.warns(UserWarning):
+        assert build_panel(SYMS, stock_dir=stock).dataset_id is None
+
+
+@pytest.mark.parametrize("text", ["{not json", "{}", '{"dataset_id": "x"}'])
+def test_malformed_manifest_gives_none_without_raising(stock, text):
+    (stock / "manifest.json").write_text(text)
+    with pytest.warns(UserWarning):
+        assert build_panel(SYMS, stock_dir=stock).dataset_id is None
+
+
+def test_sync_main_survives_manifest_failure_and_removes_stale_manifest(stock, monkeypatch):
+    for sym, base in (("AAA", 10.0), ("BBB", 20.0)):
+        df = make_df(base)
+        df["time"] = df["time"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        df.to_csv(stock / f"{sym}_stock.csv", index=False)
+    (stock / "manifest.json").write_text('{"dataset_id": "stale"}')
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(sync, "write_manifest", boom)
+    assert sync.main(["--stock-dir", str(stock), "--no-fetch"]) is True      # giá trị của check_alignment
+    assert not (stock / "manifest.json").exists()

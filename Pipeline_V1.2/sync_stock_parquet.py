@@ -438,9 +438,16 @@ def main(argv=None):
     logger.info(f"Hoàn thành toàn bộ {len(csv_files)} mã chứng khoán trong {elapsed_time:.1f} giây.")
     logger.info(f"Tất cả file Apache Parquet đã sẵn sàng tại: {stock_dir}")
     aligned = check_alignment(stock_dir, [os.path.basename(f).split("_")[0].upper() for f in csv_files])
-    write_manifest(Path(stock_dir), build_manifest(Path(stock_dir), C.SYNC_SOURCE,
-                                                   datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                                                   fetched=not args.no_fetch))
+    try:
+        write_manifest(Path(stock_dir), build_manifest(Path(stock_dir), C.SYNC_SOURCE,
+                                                       datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                                       fetched=not args.no_fetch))
+    except Exception as e:
+        logger.error(f"Không ghi được manifest.json, xóa bản cũ để không lệch với parquet mới: {e!r}")
+        try:
+            Path(stock_dir, "manifest.json").unlink(missing_ok=True)
+        except OSError as e2:
+            logger.error(f"Không xóa được manifest.json cũ: {e2!r}")
     return aligned
 
 if __name__ == "__main__":

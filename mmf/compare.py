@@ -127,23 +127,45 @@ def compare(preds, a_by_fold, b_by_fold):
 
 
 def _picks(preds, folds):
-    return {f: {g: pick(preds, f, c) for g, c in GROUPS.items()} for f in folds}
+    """Per fold, the pick of each group that has a candidate in that fold (a group without one is left out)."""
+    out = {}
+    for f in folds:
+        have = set(preds.loc[preds["fold"] == f, "arm"])
+        out[f] = {g: pick(preds, f, c) for g, c in GROUPS.items() if have & set(c)}
+    return out
 
 
 def _fmt(by_fold):
     return " ".join(f"{f}={a}" for f, a in by_fold.items())
 
 
+NOT_ENOUGH = "Chưa đủ fold để kết luận"
+
+
+def _row(ph, h, a_by, b_by, all_folds):
+    """compare() on the folds where both arms exist; `skipped` lists the others. Fewer folds than all_folds: no verdict."""
+    ok = [f for f in a_by if f in b_by and all(len(ph[(ph["fold"] == f) & (ph["arm"] == x) & (ph["block"] == "eval")]) for x in (a_by[f], b_by[f]))]
+    skipped = " ".join(f for f in all_folds if f not in ok)
+    a, b = {f: a_by[f] for f in ok}, {f: b_by[f] for f in ok}
+    r = compare(ph, a, b) if ok else {"n_folds": 0, "verdict": NOT_ENOUGH}
+    if len(ok) < len(all_folds):
+        r["verdict"] = NOT_ENOUGH
+    return {"h": h, "a": _fmt(a), "b": _fmt(b), **r, "skipped": skipped}
+
+
 def tables(preds):
-    """arms / per_symbol / r1 / r2 / r3 / leak_alarms / picks as DataFrames, from the ensembled predictions."""
+    """arms / per_symbol / r1 / r2 / r3 / leak_alarms / picks as DataFrames, from the ensembled predictions.
+
+    A comparison uses the folds where both sides exist; with fewer folds than the config has, its verdict is NOT_ENOUGH."""
     preds = add_stack(preds)
+    all_folds = [f.name for f in folds_from_config()]
     ev = preds[preds["block"] == "eval"]
     arms, per_symbol = [], []
     for keys, g in ev.groupby(["h", "fold", "arm"]):
         arms.append({"h": keys[0], "fold": keys[1], "arm": keys[2], "alpha": g["alpha"].iloc[0], "n_days": g["as_of_session"].nunique(),
                      **E.scores(g["y_true"], g[E.PROB_COLS].to_numpy(), g["alpha"].iloc[0], g[PRIOR_COLS].to_numpy())})
         for s, gs in g.groupby("symbol"):
-            per_symbol.append({"h": keys[0], "fold": keys[1], "arm": keys[2], "symbol": s, "n_days": gs["as_of_session"].nunique(),
+            per_symbol.append({"h": keys[0], "fold": keys[1], "arm": keys[2], "symbol": s, "alpha": gs["alpha"].iloc[0], "n_days": gs["as_of_session"].nunique(),
                                **E.scores(gs["y_true"], gs[E.PROB_COLS].to_numpy(), gs["alpha"].iloc[0], gs[PRIOR_COLS].to_numpy())})
     arms, per_symbol = pd.DataFrame(arms), pd.DataFrame(per_symbol)
     rows, picks = {"r1": [], "r2": [], "r3": []}, []
@@ -151,13 +173,11 @@ def tables(preds):
         folds = sorted(set(ph["fold"]))
         pk = _picks(ph, folds)
         picks += [{"h": h, "fold": f, **pk[f]} for f in folds]
-        by = lambda g: {f: pk[f][g] for f in folds}
+        by = lambda g: {f: pk[f][g] for f in folds if g in pk[f]}
         for name, other in (("r1", "baseline"), ("r2", "unimodal")):
-            rows[name].append({"h": h, "a": _fmt(by("fusion")), "b": _fmt(by(other)), **compare(ph, by("fusion"), by(other))})
+            rows[name].append(_row(ph, h, by("fusion"), by(other), all_folds))
         for ab in ABLATIONS:
-            if ab in set(ph["arm"]):
-                rows["r3"].append({"h": h, "a": "fusion_concat", "b": ab,
-                                   **compare(ph, dict.fromkeys(folds, "fusion_concat"), dict.fromkeys(folds, ab))})
+            rows["r3"].append(_row(ph, h, dict.fromkeys(folds, "fusion_concat"), dict.fromkeys(folds, ab), all_folds))
     leak = arms[(arms["macro_f1"] >= C.LEAK_ALARM_F1) | (arms["auc_up_down"] >= C.LEAK_ALARM_AUC)]
     return {"arms": arms, "per_symbol": per_symbol, **{k: pd.DataFrame(v) for k, v in rows.items()},
             "leak_alarms": leak.reset_index(drop=True), "picks": pd.DataFrame(picks)}
@@ -181,8 +201,8 @@ def write_report(run_dir, out=C.REPORTS / "mmf_dev_report.md"):
     ev = preds[preds["block"] == "eval"]
     metrics = ["n", "n_days", "alpha", "logloss", "brier", "accuracy", "macro_f1", "kappa", "auc_ovr", "auc_up_down",
                *[f"{k}_{n}" for k in ("precision", "recall") for n in E.NAMES]]
-    cmp_cols = ["h", "a", "b", "mean", "lo", "hi", "fold_wins", "n_folds", "n", "n_days", "verdict"]
-    sym = t["per_symbol"].merge(t["picks"][["h", "fold", "fusion"]].rename(columns={"fusion": "arm"}), on=["h", "fold", "arm"])
+    cmp_cols = ["h", "a", "b", "mean", "lo", "hi", "fold_wins", "n_folds", "n", "n_days", "verdict", "skipped"]
+    sym = t["per_symbol"].merge(t["picks"][["h", "fold", "fusion"]].rename(columns={"fusion": "arm"}).dropna(), on=["h", "fold", "arm"])
     lines = [
         "# Báo cáo phát triển: model đa phương thức T+2, T+5", "",
         "**Đây là vùng phát triển, chưa phải kết quả cuối.** Khối eval của fold A, B, C đã bị nhìn trong các thí nghiệm trước; "
@@ -193,7 +213,9 @@ def write_report(run_dir, out=C.REPORTS / "mmf_dev_report.md"):
         f"Dataset: {', '.join(sorted(set(ev['dataset_id'])))}. Phiên bản cảm xúc: {', '.join(sorted(set(ev['nlp_version'])))}. "
         f"Commit: {', '.join(sorted(set(ev['git_commit'].astype(str))))}. Xác suất là trung bình qua seed.", "",
         "Luật chọn, so sánh và diễn giải theo `docs/reports/mmf_preregistration.md`. Chọn theo log-loss trên calib; "
-        "chênh lệch là log-loss(fusion) trừ log-loss(đối chứng), âm là fusion tốt hơn.", "",
+        "chênh lệch là log-loss(fusion) trừ log-loss(đối chứng), âm là fusion tốt hơn. "
+        "Mỗi so sánh chỉ dùng các fold có đủ cả hai phía; cột `skipped` liệt kê fold bị bỏ, và thiếu fold thì kết luận là "
+        f"\"{NOT_ENOUGH}\".", "",
         "## Arm được chọn theo (h, fold)", "", _md(t["picks"]), "",
         "## R1: fusion so với baseline tốt nhất", "", _md(t["r1"], cmp_cols), "",
         "## R2: fusion so với nhánh đơn tốt nhất", "", _md(t["r2"], cmp_cols), "",
@@ -202,7 +224,7 @@ def write_report(run_dir, out=C.REPORTS / "mmf_dev_report.md"):
         f"Macro-F1 >= {C.LEAK_ALARM_F1} hoặc AUC Tăng so với Giảm >= {C.LEAK_ALARM_AUC} trên toàn mẫu eval của (h, fold, arm).", "",
         _md(t["leak_alarms"], ["h", "fold", "arm", "n", "macro_f1", "auc_up_down"]), "",
         "## Mọi arm theo (h, fold), khối eval, toàn mẫu", "", _md(t["arms"], ["h", "fold", "arm", *metrics]), "",
-        "## Theo mã, fusion được chọn, toàn mẫu", "", _md(sym, ["h", "fold", "arm", "symbol", *metrics[:2], "logloss", "accuracy", "macro_f1", "auc_up_down"]), "",
+        "## Theo mã, fusion được chọn, toàn mẫu", "", _md(sym, ["h", "fold", "arm", "symbol", *metrics]), "",
     ]
     out = Path(out); out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines))
@@ -218,14 +240,18 @@ def _most_picked(picked, mean_ll):
 def write_lock(run_dir, out=C.REPORTS / "mmf_lock.json"):
     """Per h: the fusion, baseline and unimodal arms picked in most folds, plus per-fold picks. Needs every fold."""
     names = [f.name for f in folds_from_config()]
+    if Path(out).exists():
+        raise ValueError(f"{out} exists: the lock is written once, move it away to write again")
+    if _h_dirs(run_dir) != sorted(C.HORIZONS):
+        raise ValueError(f"lock needs horizons {sorted(C.HORIZONS)}, run has {_h_dirs(run_dir)}")
+    need = [f"h{h}/{f}/{a}/seed{s}.parquet" for h in C.HORIZONS for f in names
+            for a, seeds in [*((b, (0,)) for b in C.BASELINES), *((a, C.SEEDS) for a in C.ARMS)] for s in seeds]
+    missing = [p for p in need if not (Path(run_dir) / p).exists()]
+    if missing:
+        raise ValueError(f"lock needs every fold, arm and seed: {len(missing)} files missing, e.g. {missing[:3]}")
     preds = _all_preds(run_dir)
     lock = {}
     for h, ph in preds.groupby("h"):
-        if sorted(set(ph["fold"])) != sorted(names):
-            raise ValueError(f"h{h}: lock needs every fold {names}, found {sorted(set(ph['fold']))}")
-        missing = (set(C.ARMS) | set(C.BASELINES)) - set(ph["arm"])
-        if missing:
-            raise ValueError(f"h{h}: lock needs every arm, missing {sorted(missing)}")
         ph = add_stack(ph)
         pk = _picks(ph, names)
         cal = ph[ph["block"] == "calib"]

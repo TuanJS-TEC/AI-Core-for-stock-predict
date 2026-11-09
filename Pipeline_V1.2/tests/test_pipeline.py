@@ -1,4 +1,5 @@
 """Kiểm thử pipeline gộp 15 mã với embedding mã: chia dữ liệu, chống rò rỉ, mô hình, metric, huấn luyện, báo cáo."""
+import json
 import re
 from pathlib import Path
 
@@ -286,6 +287,54 @@ def test_predict_gives_probabilities_and_label(small_run, capsys):
     assert (table["predicted_at"] == now.isoformat(timespec="seconds")).all() and (table["target_note"] == "").all()
     later = PR.predict(TICKERS, panel, models_dir, now=last + pd.Timedelta(days=7))
     assert (later["target_note"] == "đã qua").all()
+
+
+def test_store_treats_new_dataset_id_as_stale(tmp_path):
+    spec = {"n_rows": 10, "last_date": "2026-01-02", "dataset_id": "aaa"}
+    first = P.Store(tmp_path, spec, force=False, log=lambda *_: None)
+    first.runs.append({"T": 2, "L": 30, "model": "Linear", "wd": 0.0, "seed": 1})
+    first.preds.append(pd.DataFrame({"date": pd.to_datetime(["2026-01-02"]), "y_true": [1]}))
+    first.save()
+    same = P.Store(tmp_path, spec, force=False, log=lambda *_: None)
+    assert len(same.runs) == 1                                      # cùng dataset_id: chạy tiếp
+    logs = []
+    again = P.Store(tmp_path, {**spec, "dataset_id": "bbb"}, force=False, log=logs.append)
+    assert any("chạy lại từ đầu" in m and "dataset_id" in m for m in logs) and again.runs == []
+
+
+def test_run_experiment_spec_has_dataset_id(small_run):
+    run_dir, _, _, panel = small_run
+    spec = json.loads((run_dir / C.EXPERIMENT_FILE).read_text(encoding="utf-8"))
+    assert spec["dataset_id"] == panel.dataset_id
+
+
+def test_predict_data_invalid_when_session_missing(small_run):
+    run_dir, models_dir, _, panel = small_run
+    PR.update_models(run_dir, panel, TICKERS, models_dir, log=lambda *_: None)
+    now = panel.dates[-1] + pd.offsets.BDay(3) + pd.Timedelta(hours=18)        # lỡ 3 phiên
+    table = PR.predict(TICKERS, panel, models_dir, now=now)
+    assert len(table) == len(TICKERS)
+    assert (table["status"] == "DATA_INVALID").all() and (table["reason"] == "MISSING_SESSION").all()
+    assert table[[*C.PROB_COLS]].isna().all().all() and (table["label"] == "DATA_INVALID").all()
+    assert (table["target_note"] == "đã qua").all()
+    ok = PR.predict(TICKERS, panel, models_dir, now=panel.dates[-1] + pd.Timedelta(hours=18))
+    assert (ok["status"] == "OK").all() and (ok["reason"] == "").all()
+
+
+def test_predict_data_invalid_when_gap_inside_window(small_run):
+    run_dir, models_dir, _, panel = small_run
+    PR.update_models(run_dir, panel, TICKERS, models_dir, log=lambda *_: None)
+    now = panel.dates[-1] + pd.Timedelta(hours=18)
+    hol = PR.market_holidays(panel)
+    assert PR.invalid_reason(panel, 30, now, hol) is None           # gaps None: bỏ qua
+    panel.gaps = pd.DatetimeIndex([panel.dates[-10]])               # trong cửa sổ L = 30
+    assert PR.invalid_reason(panel, 30, now, hol) == "MISSING_SESSION"
+    table = PR.predict(TICKERS, panel, models_dir, now=now)
+    assert (table["L"] == 30).all() and (table["status"] == "DATA_INVALID").all()
+    assert (table["reason"] == "MISSING_SESSION").all() and table[[*C.PROB_COLS]].isna().all().all()
+    panel.gaps = pd.DatetimeIndex([panel.dates[-31]])               # ngoài cửa sổ: vẫn hợp lệ
+    assert PR.invalid_reason(panel, 30, now, hol) is None
+    assert (PR.predict(TICKERS, panel, models_dir, now=now)["status"] == "OK").all()
 
 
 def test_target_date_skips_weekends_and_holidays(panel):

@@ -153,7 +153,7 @@ def run_experiment(out_dir: Path, horizons=C.HORIZONS, lookbacks=C.LOOKBACKS, mo
                    wds=C.WEIGHT_DECAYS, seeds=C.SEEDS, tickers=C.TICKERS, panel=None, force: bool = False, log=print):
     panel = build_panel(tickers) if panel is None else panel
     spec = {**arch_spec(), "k_theta": C.K_THETA, "tickers": list(tickers),
-            "n_rows": len(panel.dates), "last_date": str(panel.dates[-1].date())}
+            "n_rows": len(panel.dates), "last_date": str(panel.dates[-1].date()), "dataset_id": panel.dataset_id}
     store = Store(Path(out_dir), spec, force, log)
     done = store.done()
     todo = [(T, L, m, wd, s) for T in horizons for L in lookbacks for m in models for wd in wds for s in seeds]

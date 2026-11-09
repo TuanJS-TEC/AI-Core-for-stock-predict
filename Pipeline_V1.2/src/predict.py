@@ -73,7 +73,7 @@ def logits(a: dict, model: PooledMultiTask, windows: np.ndarray) -> np.ndarray:
 
 
 def signature(panel: Panel) -> dict:
-    return {"n_rows": len(panel.dates), "last_date": str(panel.dates[-1].date())}
+    return {"n_rows": len(panel.dates), "last_date": str(panel.dates[-1].date()), "dataset_id": panel.dataset_id}
 
 
 def summary(row: dict | pd.Series) -> dict:
@@ -191,15 +191,30 @@ def missing_sessions(last_date, now: pd.Timestamp, holidays: np.ndarray) -> list
     return [pd.Timestamp(d) for d in days[np.is_busday(days, weekmask=WEEKMASK, holidays=holidays)]]
 
 
-def predict_latest(a: dict, panel: Panel, holidays: np.ndarray | None = None) -> dict:
-    """Xác suất 3 nhãn cho T phiên sau phiên cuối của dữ liệu, từ L phiên mới nhất."""
+def invalid_reason(panel: Panel, L: int, now: pd.Timestamp, holidays: np.ndarray) -> str | None:
+    """"MISSING_SESSION" nếu dữ liệu thiếu phiên lẽ ra đã có lúc now, hoặc có ngày thường không giải thích được
+    (panel.gaps) trong L phiên cuối; ngược lại None. Dự đoán không được ghi nhãn trên dữ liệu như vậy."""
+    if missing_sessions(panel.dates[-1], now, holidays):
+        return "MISSING_SESSION"
+    if panel.gaps is not None and (panel.gaps >= panel.dates[-L]).any():
+        return "MISSING_SESSION"
+    return None
+
+
+def predict_latest(a: dict, panel: Panel, holidays: np.ndarray | None = None, reason: str | None = None) -> dict:
+    """Xác suất 3 nhãn cho T phiên sau phiên cuối của dữ liệu, từ L phiên mới nhất. reason khác None (dữ liệu không
+    hợp lệ): status DATA_INVALID, xác suất NaN, nhãn DATA_INVALID."""
     t, L = a["ticker"], a["L"]
     holidays = market_holidays(panel) if holidays is None else holidays
     z = logits(a, build(a), panel.log_close[t][-L:][None])
     probs, _, scores = M.apply_calibration(z, a["temperature"], np.asarray(a["prior"]), a["alpha"], a["shrink"])
+    label = a["label_names"][int(scores[0].argmax())]
+    if reason:
+        probs, label = np.full_like(probs, np.nan), "DATA_INVALID"
     return {"ticker": t, "T": a["T"], "L": L, "last_date": str(panel.dates[-1].date()),
             "target_date": str(session_after(panel.dates[-1], a["T"], holidays).date()),
-            **dict(zip(C.PROB_COLS, probs[0].round(4))), "label": a["label_names"][int(scores[0].argmax())],
+            "status": "DATA_INVALID" if reason else "OK", "reason": reason or "",
+            **dict(zip(C.PROB_COLS, probs[0].round(4))), "label": label,
             "up_above_pct": round(100 * float(np.exp(a["theta"]) - 1), 2),
             "down_below_pct": round(100 * float(np.exp(-a["theta"]) - 1), 2),
             "model": a["model"], "wd": a["wd"], "seed": a["seed"],
@@ -224,7 +239,8 @@ def predict(tickers=C.TICKERS, panel: Panel | None = None, models_dir: Path = C.
             for L in C.LOOKBACKS:
                 p = model_path(t, T, L, models_dir)
                 if p.exists():
-                    rows.append(predict_latest(load_artifact(p), panel, holidays))
+                    a = load_artifact(p)
+                    rows.append(predict_latest(a, panel, holidays, invalid_reason(panel, a["L"], now, holidays)))
                 else:
                     missing.append(p.name)
     if missing:
@@ -269,7 +285,11 @@ def main() -> None:
         print(f"  [dự kiến]: sau {C.MARKET_CALENDAR_UNTIL} chưa khai báo ngày nghỉ (MARKET_HOLIDAYS), ngày có thể lùi.")
     print("Tăng: giá thay đổi > up_above_pct %, Giảm: < down_below_pct %, Đi ngang: nằm giữa "
           "(ngưỡng θ riêng từng mã, từng T).")
-    print(table.drop(columns=["last_date", "predicted_at", "target_note"]).to_string(index=False))
+    bad = table[table["status"] != "OK"]
+    if len(bad):
+        print(f"DATA_INVALID: {len(bad)}/{len(table)} dự đoán bị từ chối ({', '.join(sorted(set(bad['reason'])))}); "
+              f"cột status/reason cho biết hàng nào, xác suất để trống (NaN).")
+    print(table.drop(columns=["last_date", "predicted_at", "target_note"]).to_string(index=False, na_rep="NaN"))
     print(f"Đã ghi {out}")
 
 

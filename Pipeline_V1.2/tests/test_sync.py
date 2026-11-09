@@ -320,3 +320,25 @@ def test_failed_csv_write_keeps_both_old_files(tmp_path, monkeypatch):
     S.process_stock_file(str(csv), str(tmp_path), delay_between_calls=0)
     assert (pq.read_bytes(), csv.read_bytes()) == before
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def _full_refresh_with_bad_rows(tmp_path, monkeypatch, volumes):
+    stored = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00", "2026-10-28 07:00:00"], [33.8, 33.55, 22.35])
+    csv = tmp_path / "AAA_stock.csv"
+    stored.to_csv(csv, index=False)
+    bad = frame(["2026-10-26 07:00:00", "2026-10-27 07:00:00", "2026-10-28 07:00:00"], [22.55, 22.38, 22.35])
+    bad["volume"] = volumes
+    monkeypatch.setattr(S, "fetch_latest_ohlcv", lambda *a, **k: bad)
+    S.process_stock_file(str(csv), str(tmp_path), delay_between_calls=0, full_refresh=True)
+    return pd.read_parquet(tmp_path / C.STOCK_FILE.format(ticker="AAA"))
+
+
+def test_full_refetch_all_rows_invalid_keeps_stored_data(tmp_path, monkeypatch, caplog):
+    pq = _full_refresh_with_bad_rows(tmp_path, monkeypatch, [None, None, None])     # clean_types drops every row
+    assert list(pq.close) == [33.8, 33.55, 22.35]
+    assert any(r.levelname == "ERROR" for r in caplog.records)
+
+
+def test_full_refetch_losing_a_mid_row_keeps_stored_data(tmp_path, monkeypatch):
+    pq = _full_refresh_with_bad_rows(tmp_path, monkeypatch, [100, None, 100])        # would drop 10-27 for good
+    assert list(pq.close) == [33.8, 33.55, 22.35]

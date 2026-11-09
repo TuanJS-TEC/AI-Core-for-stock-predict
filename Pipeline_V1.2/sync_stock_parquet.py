@@ -188,7 +188,13 @@ def refetch_full(symbol: str, stored: pd.DataFrame, end_date: str, delay: float)
     if full is None or full.empty:
         logger.error(f"[{symbol}] tải lại toàn bộ lịch sử trả về rỗng; giữ nguyên dữ liệu đã lưu")
         return None
-    full = normalize_sessions(clean_types(full))
+    cleaned = clean_types(full)
+    if len(cleaned) < len(full):
+        # Thay lịch sử bằng bản đã mất dòng sẽ xóa vĩnh viễn các phiên đó (và bản rỗng làm hỏng bước ghi sau đó).
+        logger.error(f"[{symbol}] tải lại toàn bộ lịch sử có {len(full) - len(cleaned)} dòng không hợp lệ; "
+                     f"giữ nguyên dữ liệu đã lưu")
+        return None
+    full = normalize_sessions(cleaned)
     t, s = full[C.TIME_COL], stored[C.TIME_COL]
     if t.min() > s.min() + REFETCH_START_SLACK or t.max() < s.max():
         logger.error(f"[{symbol}] tải lại toàn bộ lịch sử bị cụt ({t.min():%Y-%m-%d}..{t.max():%Y-%m-%d}, "

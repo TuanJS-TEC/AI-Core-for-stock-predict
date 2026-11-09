@@ -64,10 +64,10 @@ def fit_alpha(y, p, prior):
     return ALPHAS[int(np.argmax(f1))]
 
 
-def paired_diff(a, b, dates, n=2000, seed=0):
+def paired_diff(a, b, dates, n=2000, seed=0, block=PC.BOOTSTRAP_BLOCK):
     """Mean and 95% percentile CI of a - b: average per date, then block-bootstrap whole dates."""
     d = pd.Series(np.asarray(a) - np.asarray(b)).groupby(np.asarray(dates)).mean().to_numpy()
-    idx = block_bootstrap_dates(d, PC.BOOTSTRAP_BLOCK, n, np.random.default_rng(seed))
+    idx = block_bootstrap_dates(d, block, n, np.random.default_rng(seed))
     boot = np.array([d[i].mean() for i in idx])
     return float(d.mean()), float(np.percentile(boot, 2.5)), float(np.percentile(boot, 97.5))
 

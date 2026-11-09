@@ -12,6 +12,7 @@ from sklearn.linear_model import LogisticRegression
 from . import config as C   # first: puts `src` on sys.path
 from . import evaluate as E
 from .experiment import PRIOR_COLS, _git_commit
+from src import config as PC
 from src.splits import folds_from_config
 
 UNIMODAL = ("dl_price", "dl_fund", "dl_text")
@@ -111,7 +112,7 @@ def _eval_ll(preds, arm, fold):
     return d.assign(ll=E.row_logloss(d["y_true"].to_numpy(), d[E.PROB_COLS].to_numpy()))[["symbol", "as_of_session", "ll"]]
 
 
-def compare(preds, a_by_fold, b_by_fold):
+def compare(preds, a_by_fold, b_by_fold, block=PC.BOOTSTRAP_BLOCK):
     """Paired log-loss difference a - b over the eval blocks of the given folds (negative favours a)."""
     parts, wins = [], 0
     for f in a_by_fold:
@@ -121,7 +122,7 @@ def compare(preds, a_by_fold, b_by_fold):
         wins += m["ll_a"].mean() < m["ll_b"].mean()
         parts.append(m)
     m = pd.concat(parts, ignore_index=True)
-    mean, lo, hi = E.paired_diff(m["ll_a"], m["ll_b"], m["as_of_session"])
+    mean, lo, hi = E.paired_diff(m["ll_a"], m["ll_b"], m["as_of_session"], block=block)
     return {"mean": mean, "lo": lo, "hi": hi, "fold_wins": int(wins), "n_folds": len(a_by_fold),
             "n": len(m), "n_days": int(m["as_of_session"].nunique()), "verdict": E.verdict(mean, hi, int(wins), len(a_by_fold))}
 

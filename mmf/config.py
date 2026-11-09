@@ -11,6 +11,7 @@ SEEDS = (59, 60, 61, 62, 63); SELECT_SEEDS = SEEDS[:2]
 FOLD_NLP = {"A": "phobert-foldB", "B": "phobert-foldB", "C": "phobert-foldC", "F": "phobert-phobert-v1"}
 FINAL_FOLD = ("F", "2026-05-04", "2026-07-30", "2026-10-30")
 HOLDOUT_AFTER = "2026-10-30"; HOLDOUT_MIN = 40; HOLDOUT_MIN_EARLY = 20
+HOLDOUT_BLOCK = 5                    # bootstrap block of the final zone (prereg addendum 2026-11-10)
 ARMS = {"dl_price": (("price",), "none"), "dl_fund": (("fund",), "none"), "dl_text": (("text",), "none"),
         "fusion_concat": (("price", "fund", "text"), "concat"), "fusion_attention": (("price", "fund", "text"), "attention"),
         "no_price": (("fund", "text"), "concat"), "no_fund": (("price", "text"), "concat"), "no_text": (("price", "fund"), "concat")}

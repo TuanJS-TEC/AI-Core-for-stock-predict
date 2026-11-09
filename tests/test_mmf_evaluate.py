@@ -38,3 +38,9 @@ def test_verdict_three_outcomes():
     assert E.verdict(-.01, .001, 3, 3) == "Có tín hiệu, bằng chứng yếu"
     assert E.verdict(-.01, -.001, 1, 3) == "Có tín hiệu, bằng chứng yếu"
     assert E.verdict(.01, .02, 0, 3) == "Chưa chứng minh được"
+
+def test_smaller_block_widens_ci_on_short_samples():
+    a = np.random.default_rng(0).normal(0, 0.05, 40)
+    width = lambda block: np.subtract(*E.paired_diff(a, np.zeros(40), np.arange(40), block=block)[2:0:-1])
+    assert width(5) > width(20) > 0
+    assert E.paired_diff(a, np.zeros(40), np.arange(40)) == E.paired_diff(a, np.zeros(40), np.arange(40), block=20)

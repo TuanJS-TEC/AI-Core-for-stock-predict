@@ -14,6 +14,9 @@ from src.data import build_panel
 from src.splits import Fold
 
 LOCK_FILE = C.REPORTS / "mmf_lock.json"
+EARLY_VERDICT = "Chưa đủ phiên để kết luận (chạy sớm)"
+STEP7 = (f"Step 7, the owner decides: at {C.HOLDOUT_MIN} matured sessions run `.venv_mmf/bin/python -m mmf.holdout --h 2 5`, once per h. "
+         "Eval predictions with y_true are written under C.DATA/holdout before the guard file; no other tool may score them.")
 CMP_COLS = ["so_sanh", "a", "b", "mean", "lo", "hi", "fold_wins", "n_folds", "n", "n_days", "verdict"]
 
 
@@ -48,11 +51,12 @@ def _arms(entry):
     return [a for a in dict.fromkeys(want) if a != "stack"]
 
 
-def _comparisons(preds, entry):
-    """R1, R2, R3 on the single eval block, so fold_wins and n_folds come out as (0 or 1, 1)."""
+def _comparisons(preds, entry, early):
+    """R1, R2, R3 on the single eval block with HOLDOUT_BLOCK, fold_wins and n_folds (0 or 1, 1). An early run gets no verdict."""
     fusion = entry["fusion"]
     pairs = [("R1", fusion, entry["baseline"]), ("R2", fusion, entry["unimodal"]), *(("R3", "fusion_concat", ab) for ab in CP.ABLATIONS)]
-    return pd.DataFrame([{"so_sanh": name, "a": a, "b": b, **CP.compare(preds, {"F": a}, {"F": b})} for name, a, b in pairs])
+    out = pd.DataFrame([{"so_sanh": name, "a": a, "b": b, **CP.compare(preds, {"F": a}, {"F": b}, block=C.HOLDOUT_BLOCK)} for name, a, b in pairs])
+    return out.assign(verdict=EARLY_VERDICT) if early else out
 
 
 def _simulations(preds, b, fusion):
@@ -62,12 +66,12 @@ def _simulations(preds, b, fusion):
     return sim.assign(calib_n=[str(int(v)) if pd.notna(v) else "" for v in sim["calib_n"]])
 
 
-def _ci_warning(n_days):
-    """Text when the 20-session bootstrap blocks cover the sample: circular blocks barely resample it, the CI is too narrow."""
+def _sim_ci_warning(n_days):
+    """Text when the simulation's 20-session bootstrap blocks cover the sample (recommend.simulate keeps that block)."""
     if n_days >= 2 * PC.BOOTSTRAP_BLOCK:
-        return ""
-    return (f"**Cảnh báo CI:** chỉ có {n_days} phiên, dưới hai khối bootstrap {PC.BOOTSTRAP_BLOCK} phiên. Mỗi lần lấy mẫu gần như giữ nguyên các phiên nên CI hẹp hơn thực tế; "
-            f"từ {PC.BOOTSTRAP_BLOCK} phiên trở xuống CI co về đúng giá trị trung bình. Kết luận \"Có bằng chứng\" và CI của mô phỏng trong báo cáo này không đáng tin.")
+        return []
+    return [f"**Cảnh báo CI mô phỏng:** chỉ có {n_days} phiên, dưới hai khối bootstrap {PC.BOOTSTRAP_BLOCK} phiên của mô phỏng. Mỗi lần lấy mẫu gần như giữ nguyên các phiên "
+            f"nên CI của bảng dưới hẹp hơn thực tế; từ {PC.BOOTSTRAP_BLOCK} phiên trở xuống CI co về đúng giá trị trung bình.", ""]
 
 
 def write_report(path, b, entry, preds, cmp, early):
@@ -87,10 +91,10 @@ def write_report(path, b, entry, preds, cmp, early):
         "Giới hạn dữ liệu (spec mục 6): 15 mã (6 mã ngân hàng thiếu biên gộp và thanh toán hiện hành, SSI thiếu BCTC, GAS có rất ít tin), "
         "tin chỉ từ 2021-10-21, BCTC theo năm không có ngày công bố nên năm Y coi là biết từ 01/04 năm Y+1, "
         "và AUC hướng giá trước đó chỉ khoảng 0.52 đến 0.54 nên kết quả khiêm tốn là kịch bản được kỳ vọng.", "",
-        *([_ci_warning(n_days), ""] if _ci_warning(n_days) else []),
+        f"Dự báo của khối eval kèm `y_true` đã nằm trên đĩa dưới `{C.DATA / 'holdout'}` từ trước khi ghi file khóa chạy; không công cụ nào khác được chấm các file này.", "",
         "## R1, R2, R3", "",
-        "Chênh lệch là log-loss(a) trừ log-loss(b), âm là a tốt hơn. CI 95% block bootstrap theo ngày. Chỉ có một vùng nên điều kiện 2/3 fold thay bằng `fold_wins=1, n_folds=1` theo plan: "
-        "kết luận chỉ phụ thuộc chênh lệch trung bình và cận trên CI.", "",
+        f"Chênh lệch là log-loss(a) trừ log-loss(b), âm là a tốt hơn. CI 95% block bootstrap theo ngày, khối {C.HOLDOUT_BLOCK} phiên thay vì {PC.BOOTSTRAP_BLOCK} (phụ lục 2026-11-10 của luật đặt trước). Chỉ có một vùng nên điều kiện 2/3 fold thay bằng `fold_wins=1, n_folds=1` theo plan: "
+        "kết luận chỉ phụ thuộc chênh lệch trung bình và cận trên CI." + (f" Chạy sớm (`early`): kết luận thay bằng \"{EARLY_VERDICT}\", số vẫn in." if early else ""), "",
         CP._md(cmp, CMP_COLS), "",
         "## Cảnh báo rò rỉ", "",
         f"Macro-F1 >= {C.LEAK_ALARM_F1} hoặc AUC Tăng so với Giảm >= {C.LEAK_ALARM_AUC}: phải kiểm tra trước khi tin.", "",
@@ -101,7 +105,7 @@ def write_report(path, b, entry, preds, cmp, early):
         f"Mua ở giá mở cửa t+1, bán ở giá đóng cửa t+h+1, trừ phí {C.AC.COST:.4f}. Không tính trượt giá, kẹt trần sàn, hay giới hạn vốn; các lệnh của phiên liền nhau chồng lấn thời gian.", "",
         f"Fusion khóa `{fusion}`. `m` chọn trên calib; không có `m` đạt 50 lệnh thì không có lệnh, và `m` có trung bình calib âm thì luật vẫn giao dịch (xem `calib_mean_net`). "
         "Hàng có phiên bán t+h+1 vượt dữ liệu bị bỏ. `coverage` là tỷ lệ hàng có lợi suất được gắn \"Ưu tiên mua\"; `toàn mẫu` là mua mọi hàng, để so sánh. `n` dưới khoảng 30 thì CI gần như không đọc được.", "",
-        CP._md(_simulations(preds, b, fusion), EXP.SIM_COLS), "",
+        *_sim_ci_warning(n_days), CP._md(_simulations(preds, b, fusion), EXP.SIM_COLS), "",
         "## Theo mã, fusion khóa, toàn mẫu", "", CP._md(t["per_symbol"].query("arm == @fusion").drop(columns=["h", "fold", "arm"])), "",
     ]
     path.write_text("\n".join(lines))
@@ -126,11 +130,11 @@ def run(h, panel, guard_dir=C.REPORTS, early=False, device="cuda"):
         json.dump({"dataset_id": b.dataset_id, "git_commit": X._git_commit(), "n_sessions": int(b.blocks["eval"]["as_of_session"].nunique()),
                    "early": early, "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}, f, indent=2)
     preds = CP.add_stack(CP.load_h(run_dir, h))
-    return write_report(Path(guard_dir) / f"mmf_holdout_h{h}.md", b, entry, preds, _comparisons(preds, entry), early)
+    return write_report(Path(guard_dir) / f"mmf_holdout_h{h}.md", b, entry, preds, _comparisons(preds, entry, early), early)
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(description=__doc__, epilog=STEP7)
     ap.add_argument("--h", type=int, nargs="+", required=True, choices=C.HORIZONS)
     ap.add_argument("--early", action="store_true", help=f"minimum {C.HOLDOUT_MIN_EARLY} sessions instead of {C.HOLDOUT_MIN}")
     ap.add_argument("--device", default="cuda")

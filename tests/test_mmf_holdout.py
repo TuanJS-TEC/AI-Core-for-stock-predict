@@ -50,8 +50,13 @@ def test_refuses_without_lock_file(tmp_path, monkeypatch):
         H.load_lock()
 
 
-def test_ci_warning_only_below_two_bootstrap_blocks():
-    assert "20 phiên" in H._ci_warning(39) and H._ci_warning(40) == ""
+def test_sim_ci_warning_only_below_two_bootstrap_blocks():
+    assert "20 phiên" in H._sim_ci_warning(39)[0] and H._sim_ci_warning(40) == []
+
+
+def r_table(text):
+    """Rows of the R1-R3 table, cells stripped."""
+    return [[c.strip() for c in line.split("|")[1:-1]] for line in text.splitlines() if line.startswith("| R")]
 
 
 def full_frame():
@@ -103,9 +108,9 @@ def test_run_guards_before_scoring_and_runs_once(tmp_path, stubbed, monkeypatch)
     assert ev["as_of_session"].nunique() == rows.as_of_session.nunique()               # the fold's end keeps every matured session
     text = out.read_text()
     assert out == tmp_path / "mmf_holdout_h5.md" and all(k in text for k in ("R1", "R2", "R3", "fusion_attention", "prior_fixed", "coverage", "T+2", "no_text"))
-    table = [[c.strip() for c in line.split("|")] for line in text.splitlines() if line.startswith("| R")]
-    assert [r[1:4] for r in table] == [["R1", "fusion_attention", "prior_fixed"], ["R2", "fusion_attention", "dl_price"], *(["R3", "fusion_concat", a] for a in CP.ABLATIONS)]
-    assert all(r[8] == "1" and r[11] in (E.verdict(-1, -1, 1, 1), E.verdict(-1, 1, 1, 1), E.verdict(1, 1, 0, 1)) for r in table)
+    table = r_table(text)
+    assert [r[:3] for r in table] == [["R1", "fusion_attention", "prior_fixed"], ["R2", "fusion_attention", "dl_price"], *(["R3", "fusion_concat", a] for a in CP.ABLATIONS)]
+    assert all(r[7] == "1" and r[10] in (E.verdict(-1, -1, 1, 1), E.verdict(-1, 1, 1, 1), E.verdict(1, 1, 0, 1)) for r in table)
     before = len(stubbed.trained)
     with pytest.raises(ValueError, match="đã chấm"):
         H.run(5, stubbed.panel, guard_dir=tmp_path, device="cpu")
@@ -126,4 +131,12 @@ def test_run_that_fails_in_scoring_cannot_run_again(tmp_path, stubbed, monkeypat
 def test_locked_stack_is_scored_without_training_it(tmp_path, stubbed):
     H.LOCK_FILE.write_text(json.dumps({"5": {**LOCK["5"], "fusion": "stack"}}))
     text = H.run(5, stubbed.panel, guard_dir=tmp_path, device="cpu").read_text()
-    assert "stack" not in {a for a, *_ in stubbed.trained} and "| R1        | stack" in text
+    assert "stack" not in {a for a, *_ in stubbed.trained} and r_table(text)[0][:2] == ["R1", "stack"]
+
+
+def test_early_run_never_claims_evidence(tmp_path, stubbed, monkeypatch):
+    monkeypatch.setattr(CP.E, "verdict", lambda *a: "Có bằng chứng")
+    text = H.run(5, stubbed.panel, guard_dir=tmp_path, early=True, device="cpu").read_text()
+    table = r_table(text)
+    assert len(table) == 5 and all(r[10] == H.EARLY_VERDICT and r[3] != "" for r in table)
+    assert "Có bằng chứng" not in text and json.loads(stubbed.guard.read_text())["early"] is True

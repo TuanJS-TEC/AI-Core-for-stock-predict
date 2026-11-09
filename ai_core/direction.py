@@ -17,7 +17,7 @@ from . import splits
 from .prices import load_prices
 from nlp_module.forecast import fundamentals, volcast  # noqa: E402
 from src import config as PC  # noqa: E402  (Pipeline_V1.2: bootstrap block/n/level)
-from src.metrics import block_bootstrap_dates  # noqa: E402
+from src.stats import block_bootstrap_dates  # noqa: E402
 
 EXRET = ["exret1", "exret5", "exret20"]
 FEATS = [f for f in volcast.FEATS if f not in fundamentals.BCTC] + EXRET

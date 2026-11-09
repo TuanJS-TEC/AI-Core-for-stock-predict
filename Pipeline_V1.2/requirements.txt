@@ -1,12 +1,7 @@
-torch==2.14.1
-scikit-learn==1.9.1
 pandas==3.0.6
 pyarrow==26.0.0
 numpy==2.5.4
-matplotlib==3.11.2
 pytest==9.1.1
-streamlit==1.66.1
-plotly==7.1.0
 # sync_stock_parquet.py. vnstock and its dependency vnai are quarantined on PyPI: install from the author's index
 # (pip install --extra-index-url https://vnstocks.com/api/simple ...). Run with VNSTOCK_TELEMETRY=0
 # VNSTOCK_DISABLE_AGENT_SETUP=1 VNSTOCK_AGENT_TARGETS=none (vnai can otherwise write into AI-agent config files).

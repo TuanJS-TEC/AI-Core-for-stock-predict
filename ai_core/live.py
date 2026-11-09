@@ -25,7 +25,7 @@ from nlp_module.contract import build_snapshot               # noqa: E402
 from nlp_module.forecast import volcast                      # noqa: E402
 from nlp_module.forecast.trial_forecast import CLOSE_UTC     # noqa: E402
 from nlp_module.pipeline import load_results                 # noqa: E402
-from src import predict as P                                 # noqa: E402
+from src import sessions as P                                # noqa: E402
 
 VERSION = "decision-v0-nogo"
 NLP_MODEL = "baseline-tfidf-lr-v1"
@@ -35,7 +35,7 @@ VN = "Asia/Ho_Chi_Minh"                                      # SESSION_DATA_READ
 
 def holidays(hist: pd.DataFrame) -> np.ndarray:
     """datetime64[D]: weekdays with no session in `hist` (any symbol), plus the declared C.MARKET_HOLIDAYS.
-    Same rule as src.predict.market_holidays, which only needs `.dates` from its panel."""
+    Same rule as src.sessions.market_holidays, which only needs `.dates` from its panel."""
     return P.market_holidays(SimpleNamespace(dates=pd.DatetimeIndex(sorted(hist["date"].unique()))))
 
 

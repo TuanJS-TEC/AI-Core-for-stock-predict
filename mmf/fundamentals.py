@@ -7,7 +7,7 @@ from nlp_module.forecast.fundamentals import annual_wide
 
 FUND_FEATS = ["ep", "eps_yoy", "roe", "roa", "de", "gross_margin", "rev_yoy", "current_ratio", "has_bctc", "is_bank"]
 RATIOS = ["ep", "eps_yoy", "roe", "roa", "de", "gross_margin", "rev_yoy", "current_ratio"]
-RATIO_CLIP = 5.0; GROWTH_CLIP = 2.0; MAX_AGE = pd.Timedelta(days=400)   # a missed filing must not carry the year before
+RATIO_CLIP = 5.0; DE_CLIP = 20.0; GROWTH_CLIP = 2.0; MAX_AGE = pd.Timedelta(days=400)   # a missed filing must not carry the year before
 ITEMS = {"eps": ["is_lai_co_ban_tren_co_phieu"],
          "np": ["is_lai_lo_thuan_sau_thue", "is_loi_nhuan_sau_thue"],           # non-bank / bank
          "eq": ["bs_von_chu_so_huu_4d280b22", "bs_von_chu_so_huu_6cda78ae"],
@@ -47,7 +47,7 @@ def annual_ratios(path=C.BCTC_FILE):
 def add_fundamentals(rows):
     """rows: symbol, as_of_session, close (thousand VND) -> rows + FUND_FEATS from the latest fiscal year known by the
     session (available_at <= session, at most 400 days old). Imputation (explicit): no usable statement (eps, roe, roa
-    or de missing) => has_bctc 0 and every ratio 0; other missing ratios => 0. Ratios clipped to +-5, growth to +-2."""
+    or de missing) => has_bctc 0 and every ratio 0; other missing ratios => 0. Ratios clipped to +-5 (de +-20), growth to +-2."""
     a = annual_ratios()
     d = rows.assign(_sym=rows["symbol"].astype(str), _i=range(len(rows)))
     a = a.astype({"available_at": d["as_of_session"].dtype})   # merge_asof refuses mixed ns/us resolutions
@@ -55,10 +55,12 @@ def add_fundamentals(rows):
                       left_on="as_of_session", right_on="available_at", by="_sym", direction="backward",
                       tolerance=MAX_AGE).sort_values("_i")
     m["ep"] = (m["eps"] / (m["close"] * 1000)).replace([np.inf, -np.inf], np.nan)
+    de = m["de"].clip(-DE_CLIP, DE_CLIP)         # bank leverage is 9-12: a +-5 clip would flatten it to a constant
     ok = np.isfinite(m[["eps", "roe", "roa", "de"]]).all(axis=1)
     m[RATIOS] = m[RATIOS].clip(-RATIO_CLIP, RATIO_CLIP)
     g = ["eps_yoy", "rev_yoy"]
     m[g] = m[g].clip(-GROWTH_CLIP, GROWTH_CLIP)
+    m["de"] = de
     m[RATIOS] = m[RATIOS].where(ok, 0.0).fillna(0.0)
     m["has_bctc"] = ok.astype(float)
     m["is_bank"] = m["symbol"].isin(C.BANKS).astype(float)

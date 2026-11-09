@@ -43,3 +43,6 @@ def test_row_order_and_index_kept():
     out = F.add_fundamentals(r)
     assert list(out.index) == [10, 11, 12] and out.symbol.tolist() == ["VCB", "FPT", "FPT"]
     assert out.has_bctc.tolist() == [1, 1, 1] and out.ep.iloc[1] != out.ep.iloc[2]
+
+def test_bank_leverage_not_flattened():
+    assert F.add_fundamentals(rows("VCB", "2025-06-02")).iloc[0].de == pytest.approx(1.889664e15 / 1.962092e14, rel=1e-3)

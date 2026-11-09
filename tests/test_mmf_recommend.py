@@ -76,3 +76,11 @@ def test_block_rows_read_no_price_after_the_block():
     assert a.net_ret.iloc[3:].isna().all()                                                  # exit past it does not
     later = f.assign(close=f.close.where(f.as_of_session <= end, 999.0), open=f.open.where(f.as_of_session <= end, 999.0))
     pd.testing.assert_series_equal(a.net_ret, R.with_net_ret(rows, later, 2, end, cost=0.0).net_ret)
+
+
+def test_simulate_passes_block_to_bootstrap(monkeypatch):
+    seen, real = [], R.block_bootstrap_dates
+    monkeypatch.setattr(R, "block_bootstrap_dates", lambda d, block, *a: (seen.append(block), real(d, block, *a))[1])
+    R.simulate(_toy_rows(), 0.1, 2)
+    R.simulate(_toy_rows(), 0.1, 2, block=5)
+    assert seen == [R.PC.BOOTSTRAP_BLOCK, 5]

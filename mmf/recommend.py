@@ -40,7 +40,7 @@ def label(p_up, p_down, m):
     return np.select([gap >= m, -gap >= m], RULES[:2], RULES[2])
 
 
-def simulate(rows, m, h, seed=0):
+def simulate(rows, m, h, seed=0, block=PC.BOOTSTRAP_BLOCK):
     """LONG rows of `rows` at margin m. Rows without a return are left out, CI by block bootstrap over the sessions.
 
     rand_median: median mean return of 1000 random draws of the same number of trades from the same rows."""
@@ -52,7 +52,7 @@ def simulate(rows, m, h, seed=0):
     if not n:
         return out
     day = pd.DataFrame({"s": net * pick, "n": pick.astype(int)}).groupby(d["as_of_session"].to_numpy()).sum().to_numpy()
-    idx = block_bootstrap_dates(day, PC.BOOTSTRAP_BLOCK, 2000, rng)
+    idx = block_bootstrap_dates(day, block, 2000, rng)
     with np.errstate(invalid="ignore", divide="ignore"):
         boot = np.array([day[i, 0].sum() / day[i, 1].sum() for i in idx])    # a resample without trades is NaN
     return {**out, "mean_net": float(net[pick].mean()), "rand_median": float(np.median([rng.choice(net, n, replace=False).mean() for _ in range(1000)])),

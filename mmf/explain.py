@@ -17,6 +17,7 @@ from . import config as C   # first: puts `src` on sys.path
 from . import baselines as B, compare as CP, evaluate as E, experiment as EX, recommend as R, train as TR
 from .frame import GROUPS
 from .windows import BINARY
+from src import config as PC
 from src.data import build_panel
 from src.splits import folds_from_config
 
@@ -143,7 +144,7 @@ def _label_shares(ev):
     return {"share_tranh": k.get(R.RULES[1], 0.0), "share_khong_du": k.get(R.RULES[2], 0.0)}
 
 
-def _simulations(preds, b, arm):
+def _simulations(preds, b, arm, block=PC.BOOTSTRAP_BLOCK):
     """(row of the fold, eval rows with the fold's margin): margin from calib ensemble probabilities, scored on eval."""
     d = preds[(preds["fold"] == b.fold.name) & (preds["arm"] == arm)]
     cal = R.with_net_ret(d[d["block"] == "calib"], b.frame, b.h, b.fold.calib_end)
@@ -151,8 +152,8 @@ def _simulations(preds, b, arm):
     m = R.pick_margin(cal["p_up"], cal["p_down"], cal["net_ret"])
     mm = np.inf if m is None else m       # no margin on calib: no trade
     ev = ev.assign(m=mm)
-    c = R.simulate(cal, mm, b.h)
-    return {**R.simulate(ev, mm, b.h), **_label_shares(ev), "fold": b.fold.name, "m": m,
+    c = R.simulate(cal, mm, b.h, block=block)
+    return {**R.simulate(ev, mm, b.h, block=block), **_label_shares(ev), "fold": b.fold.name, "m": m,
             "calib_mean_net": c["mean_net"], "calib_coverage": c["coverage"], "calib_n": c["n"]}, ev
 
 

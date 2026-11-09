@@ -61,17 +61,9 @@ def _comparisons(preds, entry, early):
 
 def _simulations(preds, b, fusion):
     """Rule at the margin picked on calib, next to buying every row. eval_end is the last session, so exits stay in the data."""
-    row, ev = EXP._simulations(preds, b, fusion)
-    sim = pd.DataFrame([{**row, "pham_vi": "theo luật"}, {**R.simulate(ev, -1.0, b.h), "fold": "F", "m": np.nan, "pham_vi": "toàn mẫu"}])
+    row, ev = EXP._simulations(preds, b, fusion, block=C.HOLDOUT_BLOCK)
+    sim = pd.DataFrame([{**row, "pham_vi": "theo luật"}, {**R.simulate(ev, -1.0, b.h, block=C.HOLDOUT_BLOCK), "fold": "F", "m": np.nan, "pham_vi": "toàn mẫu"}])
     return sim.assign(calib_n=[str(int(v)) if pd.notna(v) else "" for v in sim["calib_n"]])
-
-
-def _sim_ci_warning(n_days):
-    """Text when the simulation's 20-session bootstrap blocks cover the sample (recommend.simulate keeps that block)."""
-    if n_days >= 2 * PC.BOOTSTRAP_BLOCK:
-        return []
-    return [f"**Cảnh báo CI mô phỏng:** chỉ có {n_days} phiên, dưới hai khối bootstrap {PC.BOOTSTRAP_BLOCK} phiên của mô phỏng. Mỗi lần lấy mẫu gần như giữ nguyên các phiên "
-            f"nên CI của bảng dưới hẹp hơn thực tế; từ {PC.BOOTSTRAP_BLOCK} phiên trở xuống CI co về đúng giá trị trung bình.", ""]
 
 
 def write_report(path, b, entry, preds, cmp, early):
@@ -104,8 +96,8 @@ def write_report(path, b, entry, preds, cmp, early):
         f"**Giả định chưa xác nhận:** lợi suất tính theo thanh toán T+2 và không bán khống (chỉ LONG), chủ dự án chưa xác nhận giả định này. "
         f"Mua ở giá mở cửa t+1, bán ở giá đóng cửa t+h+1, trừ phí {C.AC.COST:.4f}. Không tính trượt giá, kẹt trần sàn, hay giới hạn vốn; các lệnh của phiên liền nhau chồng lấn thời gian.", "",
         f"Fusion khóa `{fusion}`. `m` chọn trên calib; không có `m` đạt 50 lệnh thì không có lệnh, và `m` có trung bình calib âm thì luật vẫn giao dịch (xem `calib_mean_net`). "
-        "Hàng có phiên bán t+h+1 vượt dữ liệu bị bỏ. `coverage` là tỷ lệ hàng có lợi suất được gắn \"Ưu tiên mua\"; `toàn mẫu` là mua mọi hàng, để so sánh. `n` dưới khoảng 30 thì CI gần như không đọc được.", "",
-        *_sim_ci_warning(n_days), CP._md(_simulations(preds, b, fusion), EXP.SIM_COLS), "",
+        f"Hàng có phiên bán t+h+1 vượt dữ liệu bị bỏ. `coverage` là tỷ lệ hàng có lợi suất được gắn \"Ưu tiên mua\"; `toàn mẫu` là mua mọi hàng, để so sánh. `n` dưới khoảng 30 thì CI gần như không đọc được. CI 95% block bootstrap phiên, khối {C.HOLDOUT_BLOCK} phiên như phần so sánh.", "",
+        CP._md(_simulations(preds, b, fusion), EXP.SIM_COLS), "",
         "## Theo mã, fusion khóa, toàn mẫu", "", CP._md(t["per_symbol"].query("arm == @fusion").drop(columns=["h", "fold", "arm"])), "",
     ]
     path.write_text("\n".join(lines))

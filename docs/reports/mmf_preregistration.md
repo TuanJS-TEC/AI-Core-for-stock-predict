@@ -31,3 +31,4 @@ Mọi kết quả chọn lọc theo độ tin cậy phải báo kèm độ phủ
 
 ## Phụ lục 2026-11-10 (trước khi chạy vùng chấm cuối)
 Vùng chấm cuối chỉ có một fold, khoảng 40 phiên. Block bootstrap vòng tròn khối 20 phiên trên vùng này chỉ có 2 khối, và CI co lại: ở 20 phiên mỗi lần lấy mẫu giữ nguyên mọi phiên nên CI có độ rộng bằng 0. Vì vậy các so sánh R1, R2, R3 trên vùng chấm cuối dùng khối 5 phiên (`HOLDOUT_BLOCK`), vẫn 2000 lần. Lần chạy sớm (`--early`, tối thiểu 20 phiên) không đưa ra kết luận: cột kết luận ghi "Chưa đủ phiên để kết luận (chạy sớm)", số vẫn in. Luật của vùng phát triển giữ nguyên. Vùng chấm cuối chưa được đọc khi viết phụ lục này.
+Khoảng tin cậy của mô phỏng luật khuyến nghị trên vùng chấm cuối cũng dùng khối 5 phiên.

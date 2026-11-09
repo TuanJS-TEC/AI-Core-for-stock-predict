@@ -50,10 +50,6 @@ def test_refuses_without_lock_file(tmp_path, monkeypatch):
         H.load_lock()
 
 
-def test_sim_ci_warning_only_below_two_bootstrap_blocks():
-    assert "20 phiên" in H._sim_ci_warning(39)[0] and H._sim_ci_warning(40) == []
-
-
 def r_table(text):
     """Rows of the R1-R3 table, cells stripped."""
     return [[c.strip() for c in line.split("|")[1:-1]] for line in text.splitlines() if line.startswith("| R")]
@@ -136,7 +132,12 @@ def test_locked_stack_is_scored_without_training_it(tmp_path, stubbed):
 
 def test_early_run_never_claims_evidence(tmp_path, stubbed, monkeypatch):
     monkeypatch.setattr(CP.E, "verdict", lambda *a: "Có bằng chứng")
+    blocks, boot = [], CP.E.block_bootstrap_dates
+    for mod in (CP.E, H.R):
+        monkeypatch.setattr(mod, "block_bootstrap_dates", lambda d, block, *a: (blocks.append(block), boot(d, block, *a))[1])
+    monkeypatch.setattr(CP, "_row", lambda *a: {})              # tables() R1-R3 use dev-fold rules and are not printed
     text = H.run(5, stubbed.panel, guard_dir=tmp_path, early=True, device="cpu").read_text()
     table = r_table(text)
     assert len(table) == 5 and all(r[10] == H.EARLY_VERDICT and r[3] != "" for r in table)
+    assert set(blocks) == {C.HOLDOUT_BLOCK} and len(blocks) >= 5 + 1      # R1, R2, three R3, then the simulations
     assert "Có bằng chứng" not in text and json.loads(stubbed.guard.read_text())["early"] is True

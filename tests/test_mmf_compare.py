@@ -139,3 +139,14 @@ def test_lock_refuses_missing_horizon_seed_or_existing_file(tmp_path):
     lock = C.write_lock(d, tmp_path / "c.json")
     with pytest.raises(ValueError, match="exists"):
         C.write_lock(d, lock)
+
+
+def test_r3_says_when_removing_a_branch_made_fusion_better():
+    r3 = pd.DataFrame([{"h": 5, "b": "A=no_text B=no_text C=no_text", "mean": 0.0082, "lo": 0.0037, "hi": 0.0121, "fold_wins": 0, "n_folds": 3},
+                       {"h": 2, "b": "A=no_text B=no_text C=no_text", "mean": 0.0017, "lo": -0.0005, "hi": 0.0037, "fold_wins": 0, "n_folds": 3},
+                       {"h": 2, "b": "A=no_price B=no_price C=no_price", "mean": -0.0112, "lo": -0.0242, "hi": 0.0006, "fold_wins": 3, "n_folds": 3},
+                       {"h": 5, "b": "", "n_folds": 0}])
+    notes = C._branch_notes(r3)
+    assert len(notes) == 2
+    assert "T+5" in notes[0] and "bỏ nhánh text làm fusion tốt hơn" in notes[0] and "+0.0082" in notes[0] and "bằng chứng chống lại nhánh text" in notes[0]
+    assert "T+2" in notes[1] and "chưa chứng minh" in notes[1] and "+0.0017" in notes[1] and "0/3" in notes[1]

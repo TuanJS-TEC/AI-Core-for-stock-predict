@@ -195,6 +195,19 @@ def _md(df, cols=None, floatfmt=".4f"):
     return "(không có)" if df.empty else (df if cols is None else df.reindex(columns=cols)).to_markdown(index=False, floatfmt=floatfmt)
 
 
+def _branch_notes(r3):
+    """One sentence per R3 row whose mean is above 0 (removing the branch helped fusion); the verdict column is left as is."""
+    out = []
+    for r in r3.to_dict("records"):
+        if not r.get("mean", np.nan) > 0:
+            continue
+        branch = r["b"].split()[0].split("=")[1].removeprefix("no_")
+        nums = f"chênh lệch {r['mean']:+.4f}, CI {r['lo']:+.4f} đến {r['hi']:+.4f}, fusion_concat thắng {int(r['fold_wins'])}/{int(r['n_folds'])} fold"
+        out.append(f"- T+{r['h']}: bỏ nhánh {branch} làm fusion tốt hơn ({nums}); CI nằm trên 0, đây là bằng chứng chống lại nhánh {branch}." if r["lo"] > 0
+                   else f"- T+{r['h']}: hướng nghiêng về bỏ nhánh {branch} ({nums}), tức là chống lại nhánh {branch}, nhưng CI chứa 0 nên chưa chứng minh.")
+    return out
+
+
 def write_report(run_dir, out=C.REPORTS / "mmf_dev_report.md"):
     """Markdown report (Vietnamese) of a run: all arms per (h, fold), R1-R3 with verdicts, per symbol, leak alarms."""
     preds = _all_preds(run_dir)
@@ -203,6 +216,7 @@ def write_report(run_dir, out=C.REPORTS / "mmf_dev_report.md"):
     metrics = ["n", "n_days", "alpha", "logloss", "brier", "accuracy", "macro_f1", "kappa", "auc_ovr", "auc_up_down",
                *[f"{k}_{n}" for k in ("precision", "recall") for n in E.NAMES]]
     cmp_cols = ["h", "a", "b", "mean", "lo", "hi", "fold_wins", "n_folds", "n", "n_days", "verdict", "skipped"]
+    notes = _branch_notes(t["r3"])
     sym = t["per_symbol"].merge(t["picks"][["h", "fold", "fusion"]].rename(columns={"fusion": "arm"}).dropna().astype({"arm": str}), on=["h", "fold", "arm"])
     lines = [
         "# Báo cáo phát triển: model đa phương thức T+2, T+5", "",
@@ -221,6 +235,7 @@ def write_report(run_dir, out=C.REPORTS / "mmf_dev_report.md"):
         "## R1: fusion so với baseline tốt nhất", "", _md(t["r1"], cmp_cols), "",
         "## R2: fusion so với nhánh đơn tốt nhất", "", _md(t["r2"], cmp_cols), "",
         "## R3: đóng góp từng nhánh (fusion_concat so với arm bỏ nhánh)", "", _md(t["r3"], cmp_cols), "",
+        *(["Chênh lệch dương là arm bỏ nhánh tốt hơn fusion_concat. Cột verdict giữ thang đặt trước và không đổi.", "", *notes, ""] if notes else []),
         "## Cảnh báo rò rỉ", "",
         f"Macro-F1 >= {C.LEAK_ALARM_F1} hoặc AUC Tăng so với Giảm >= {C.LEAK_ALARM_AUC} trên toàn mẫu eval của (h, fold, arm).", "",
         _md(t["leak_alarms"], ["h", "fold", "arm", "n", "macro_f1", "auc_up_down"]), "",

@@ -44,6 +44,11 @@ Luật chọn, so sánh và diễn giải theo `docs/reports/mmf_preregistration
 |   5 | A=fusion_concat B=fusion_concat C=fusion_concat | A=no_fund B=no_fund C=no_fund    | -0.0002 | -0.0065 | 0.0052 |           1 |         3 | 2610 |      174 | Có tín hiệu, bằng chứng yếu |           |
 |   5 | A=fusion_concat B=fusion_concat C=fusion_concat | A=no_text B=no_text C=no_text    |  0.0082 |  0.0037 | 0.0121 |           0 |         3 | 2610 |      174 | Chưa chứng minh được        |           |
 
+Chênh lệch dương là arm bỏ nhánh tốt hơn fusion_concat. Cột verdict giữ thang đặt trước và không đổi.
+
+- T+2: hướng nghiêng về bỏ nhánh text (chênh lệch +0.0017, CI -0.0005 đến +0.0037, fusion_concat thắng 0/3 fold), tức là chống lại nhánh text, nhưng CI chứa 0 nên chưa chứng minh.
+- T+5: bỏ nhánh text làm fusion tốt hơn (chênh lệch +0.0082, CI +0.0037 đến +0.0121, fusion_concat thắng 0/3 fold); CI nằm trên 0, đây là bằng chứng chống lại nhánh text.
+
 ## Cảnh báo rò rỉ
 
 Macro-F1 >= 0.5 hoặc AUC Tăng so với Giảm >= 0.65 trên toàn mẫu eval của (h, fold, arm).

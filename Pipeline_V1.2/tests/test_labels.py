@@ -73,3 +73,16 @@ def test_label_version_and_columns():
     assert out["label_end_date"].equals(out["target_session"])
     assert str(out["label"].dtype) == "Int64"
     assert set(out["status"]) <= {"ok", "not_matured", "missing_session", "bad_sigma"}
+
+
+def test_ok_labels_match_independent_computation():
+    f = _frame(300, seed=1, gap=150)
+    out = make_labels(f, 5)
+    ok = out["status"] == "ok"
+    r, th = out.loc[ok, "realized_return"].to_numpy(), out.loc[ok, "theta_used"].to_numpy()
+    expected = [2 if x > t else 0 if x < -t else 1 for x, t in zip(r, th)]
+    assert out.loc[ok, "label"].astype(int).tolist() == expected
+    assert min(expected.count(c) for c in (0, 1, 2)) >= 10  # all three classes, non-trivially
+    assert str(out["label"].dtype) == "Int64"
+    assert out.loc[~ok, "label"].isna().all()
+    assert {"not_matured", "missing_session", "bad_sigma"} <= set(out["status"])

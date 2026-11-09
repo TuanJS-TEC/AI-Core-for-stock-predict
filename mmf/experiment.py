@@ -106,6 +106,37 @@ def _write_preds(path, b, arm, seed, price_kind, probs, alpha):
     _atomic(path, lambda tmp: out.to_parquet(tmp, index=False))
 
 
+def _run_meta(b):
+    return {"dataset_id": b.dataset_id, "nlp_version": b.nlp_version, "h": b.h, "fold": b.fold.name}
+
+
+def _require_same(path, got, want):
+    bad = {k: (got.get(k), v) for k, v in want.items() if got.get(k) != v}
+    if bad:
+        raise ValueError(f"{path}: existing file is from another run, (found, expected): {bad}")
+
+
+def _reusable(path, b, price_kind):
+    """True when `path` holds this run's output. A corrupt file or one from another run raises, never gets reused."""
+    path = Path(path)
+    if not path.exists():
+        return False
+    try:
+        d = pd.read_parquet(path, columns=["symbol", "as_of_session", "block", "price_kind", "git_commit", *_run_meta(b)])
+    except Exception as e:
+        raise ValueError(f"{path}: unreadable: {e!r}") from e
+    want = {**_run_meta(b), "price_kind": price_kind}
+    _require_same(path, {c: sorted(set(d[c].astype(str))) for c in want}, {c: [str(v)] for c, v in want.items()})
+    keys = set(zip(d["symbol"].astype(str), pd.to_datetime(d["as_of_session"]), d["block"].astype(str)))
+    expected = {(sym, day, k) for k in OUT_BLOCKS for sym, day in zip(b.samples[k].symbol, pd.to_datetime(b.samples[k].as_of))}
+    if keys != expected:
+        raise ValueError(f"{path}: existing file is from another run: keys differ, {len(keys ^ expected)} not shared")
+    commits = sorted(set(d["git_commit"].astype(str)))
+    if commits != [_git_commit()]:
+        print(f"warning: {path} written by commit {commits}, now at {_git_commit()}", flush=True)
+    return True
+
+
 def _net_maker(b, arm, price_kind):
     branches, fusion = C.ARMS[arm]
     dims = [len(GROUPS[g]) for g in ("price", "text", "fund")]
@@ -120,8 +151,8 @@ def calibrate(b, z_calib, z_eval=None):
 
 
 def run_baseline(b, name, out_path):
-    """Baseline probabilities written unchanged; only alpha is fit (on calib). Existing file: skipped."""
-    if Path(out_path).exists():
+    """Baseline probabilities written unchanged; only alpha is fit (on calib). Existing file: checked, then skipped."""
+    if _reusable(out_path, b, "none"):
         return
     start = time.time()
     p = B.predict_baseline(name, b.blocks, b.scaled, b.frame)
@@ -131,30 +162,33 @@ def run_baseline(b, name, out_path):
 
 
 def run_arm(b, arm, seed, price_kind, out_path, device, max_epochs=C.MAX_EPOCHS):
-    """Train one seed, write weights then calibrated probabilities. Existing parquet: skipped."""
+    """Train one seed, write weights then calibrated probabilities. Existing parquet: checked, then skipped."""
     out_path = Path(out_path)
-    if out_path.exists():
+    kind = price_kind if "price" in C.ARMS[arm][0] else "none"
+    if _reusable(out_path, b, kind):
         return
     start = time.time()
     fit = TR.fit_net(_net_maker(b, arm, price_kind), b.samples["train"], b.samples["tune"], seed, device, max_epochs)
     z = {k: TR.predict_logits(fit["net"], b.samples[k], device) for k in OUT_BLOCKS}
     t, alpha = calibrate(b, z["calib"], z["eval"])
     _atomic(out_path.with_suffix(".pt"), lambda tmp: torch.save(fit["net"].state_dict(), tmp))
-    kind = price_kind if "price" in C.ARMS[arm][0] else "none"
     _write_preds(out_path, b, arm, seed, kind, {k: E.apply_temperature(z[k], t) for k in OUT_BLOCKS}, alpha)
     print(f"h{b.h} {b.fold.name} {arm} seed{seed} {kind} epoch={fit['best_epoch']} tune_nll={fit['tune_nll']:.4f} "
           f"t={t:.3f} alpha={alpha} {time.time() - start:.0f}s", flush=True)
 
 
 def select_price_kind(b, run_dir, device, max_epochs=C.MAX_EPOCHS):
-    """Encoder with the lowest mean tune NLL of dl_price over SELECT_SEEDS (tie: first listed), kept in select.json."""
+    """Encoder with the lowest mean tune NLL of dl_price over SELECT_SEEDS (tie: first listed), kept in select.json and reused only by the same run settings."""
     path = Path(run_dir) / f"h{b.h}" / b.fold.name / "select.json"
+    meta = {**_run_meta(b), "max_epochs": max_epochs}
     if path.exists():
-        return json.loads(path.read_text())["price_kind"]
+        saved = json.loads(path.read_text())
+        _require_same(path, saved, meta)
+        return saved["price_kind"]
     nll = {k: float(np.mean([TR.fit_net(_net_maker(b, "dl_price", k), b.samples["train"], b.samples["tune"], s, device, max_epochs)["tune_nll"]
                              for s in C.SELECT_SEEDS])) for k in C.PRICE_KINDS}
     kind = min(C.PRICE_KINDS, key=nll.get)
-    _atomic(path, lambda tmp: tmp.write_text(json.dumps({"price_kind": kind, "tune_nll": nll, "seeds": C.SELECT_SEEDS})))
+    _atomic(path, lambda tmp: tmp.write_text(json.dumps({"price_kind": kind, "tune_nll": nll, "seeds": C.SELECT_SEEDS, **meta})))
     print(f"h{b.h} {b.fold.name} select {kind} {nll}", flush=True)
     return kind
 

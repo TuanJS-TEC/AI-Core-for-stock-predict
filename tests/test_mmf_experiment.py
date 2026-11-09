@@ -1,3 +1,4 @@
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np, pandas as pd, pytest, torch
@@ -87,13 +88,15 @@ def test_shuffle_changes_only_train_labels(tiny_bundle):
 
 
 def test_shuffle_uses_one_date_permutation_and_reaches_baselines(tiny_bundle):
-    t, s = tiny_bundle.samples["train"], X.shuffle_train_labels(tiny_bundle)
-    grid = lambda y: pd.DataFrame({"s": t.symbol, "d": t.as_of, "y": y}).set_index(["d", "s"])["y"]
-    old, new = grid(t.y), grid(s.samples["train"].y)
-    day = new.index.get_level_values("d")[0]
-    source = [d for d in np.unique(t.as_of) if (old.loc[d].to_numpy() == new.loc[day].to_numpy()).all()]
-    assert source                                                   # all 3 symbols took their labels from one date
-    np.testing.assert_array_equal(s.blocks["train"]["label"].to_numpy(), s.samples["train"].y)
+    t = tiny_bundle.samples["train"]
+    t.y[:] = np.arange(len(t))                                      # label = row number, so each label names its source row
+    s = X.shuffle_train_labels(tiny_bundle)
+    src = s.samples["train"].y
+    assert (t.symbol[src] == t.symbol).all()                        # labels stay within their symbol
+    moved = pd.DataFrame({"to": t.as_of, "sym": t.symbol, "frm": t.as_of[src]}).groupby("to")["frm"].agg(["nunique", "first"])
+    assert (moved["nunique"] == 1).all()                            # every symbol on a date reads from the same date
+    assert moved["first"].is_unique and set(moved["first"]) == set(t.as_of) and (moved["first"] != moved.index).any()
+    np.testing.assert_array_equal(s.blocks["train"]["label"].to_numpy(), src)
 
 
 def test_blocks_hold_only_rows_kept_by_windows(tiny_bundle):
@@ -153,6 +156,65 @@ def test_price_arms_use_selected_kind(tmp_path, tiny_bundle):
     kind = pd.read_json(tmp_path / "h5/A/select.json", typ="series")["price_kind"]
     assert pd.read_parquet(tmp_path / "h5/A/no_text/seed59.parquet").price_kind.iloc[0] == kind
     assert pd.read_parquet(tmp_path / "h5/A/dl_fund/seed59.parquet").price_kind.iloc[0] == "none"
+
+
+def test_rerun_with_other_price_kind_raises(tmp_path, tiny_bundle):
+    out = tmp_path / "no_text/seed59.parquet"
+    X.run_arm(tiny_bundle, "no_text", 59, "gru", out, "cpu", max_epochs=1)
+    before = out.stat().st_mtime_ns
+    X.run_arm(tiny_bundle, "no_text", 59, "gru", out, "cpu", max_epochs=1)
+    with pytest.raises(ValueError, match="price_kind"):
+        X.run_arm(tiny_bundle, "no_text", 59, "lstm", out, "cpu", max_epochs=1)
+    assert out.stat().st_mtime_ns == before
+
+
+@pytest.mark.parametrize("change, field", [({"dataset_id": "other"}, "dataset_id"), ({"nlp_version": "other"}, "nlp_version"),
+                                           ({"h": 2}, "'h'"), ({"fold": FOLD._replace(name="B")}, "fold")])
+def test_rerun_with_other_metadata_raises(tmp_path, tiny_bundle, change, field):
+    out = tmp_path / "prior_fixed/seed0.parquet"
+    X.run_baseline(tiny_bundle, "prior_fixed", out)
+    with pytest.raises(ValueError, match=field):
+        X.run_baseline(replace(tiny_bundle, **change), "prior_fixed", out)
+
+
+def test_rerun_with_other_key_set_raises(tmp_path, tiny_bundle):
+    out = tmp_path / "prior_fixed/seed0.parquet"
+    X.run_baseline(tiny_bundle, "prior_fixed", out)
+    f = fake_frame()
+    f.loc[(f.symbol == "BBB") & (f.as_of_session == DAYS[340]), "sentiment_mean"] = np.nan
+    other = X.bundle_from_frame(f, 5, FOLD, "phobert-foldB", "tinydataset", SYMS)
+    with pytest.raises(ValueError, match="keys differ"):
+        X.run_baseline(other, "prior_fixed", out)
+
+
+def test_rerun_with_other_git_commit_warns_once_and_skips(tmp_path, tiny_bundle, monkeypatch, capsys):
+    out = tmp_path / "prior_fixed/seed0.parquet"
+    X.run_baseline(tiny_bundle, "prior_fixed", out)
+    before = out.stat().st_mtime_ns
+    capsys.readouterr()
+    monkeypatch.setattr(X, "_git_commit", lambda: "othercommit")
+    X.run_baseline(tiny_bundle, "prior_fixed", out)
+    printed = capsys.readouterr().out.splitlines()
+    assert len(printed) == 1 and "warning" in printed[0] and "othercommit" in printed[0]
+    assert out.stat().st_mtime_ns == before
+
+
+def test_corrupt_file_fails_loudly(tmp_path, tiny_bundle):
+    out = tmp_path / "prior_fixed/seed0.parquet"
+    out.parent.mkdir()
+    out.write_bytes(b"not parquet")
+    with pytest.raises(ValueError, match="unreadable"):
+        X.run_baseline(tiny_bundle, "prior_fixed", out)
+
+
+def test_select_reuse_needs_same_settings(tmp_path, tiny_bundle, monkeypatch):
+    monkeypatch.setattr(X.TR, "fit_net", lambda *a, **k: {"tune_nll": 1.0})
+    assert X.select_price_kind(tiny_bundle, tmp_path, "cpu", max_epochs=1) == "lstm"
+    assert X.select_price_kind(tiny_bundle, tmp_path, "cpu", max_epochs=1) == "lstm"
+    with pytest.raises(ValueError, match="max_epochs"):
+        X.select_price_kind(tiny_bundle, tmp_path, "cpu", max_epochs=2)
+    with pytest.raises(ValueError, match="dataset_id"):
+        X.select_price_kind(replace(tiny_bundle, dataset_id="other"), tmp_path, "cpu", max_epochs=1)
 
 
 def test_refuses_without_dataset_id(tmp_path):

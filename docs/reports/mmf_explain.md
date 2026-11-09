@@ -17,13 +17,13 @@ Dataset: 24251acc1a5695bdcc2c8e8e6b2527669eb84b6ece095d6f3a5e6a929f2ae4ad. Arm g
 
 Fold có CI nằm hẳn dưới 0: B (-0.0062, độ phủ 30.9%, 278 lệnh). Fold kém hơn ngẫu nhiên: C (-0.0085, độ phủ 8.8%, 79 lệnh, ngẫu nhiên -0.0050).
 
-Nhóm làm log-loss tăng khi hoán vị (lo > 0 ở ít nhất 2/3 fold; một seed, CI chưa hiệu chỉnh đa so sánh): không có. Tỷ trọng SHAP trung bình: price 76%, text 19%, fund 5%.
+Nhóm làm log-loss tăng khi hoán vị (lo > 0 ở ít nhất 2/3 fold; một seed, CI chưa hiệu chỉnh đa so sánh): không có. Nhóm làm log-loss giảm khi hoán vị (hi < 0; một seed, CI chưa hiệu chỉnh đa so sánh): không có. Tỷ trọng SHAP trung bình: price 76%, text 19%, fund 5%.
 
 **T+5** (fusion khóa fusion_attention). Theo luật: độ phủ 9.8%, 252 lệnh, 57 phiên, lợi suất ròng trung bình -0.0046 (CI 95% -0.0239 đến +0.0294), ngẫu nhiên cùng số lệnh -0.0111. Toàn mẫu: độ phủ 100%, 2565 lệnh, -0.0111. **Luật không có lãi:** trung bình âm, CI chứa 0. Cao hơn ngẫu nhiên chỉ có nghĩa là lỗ ít hơn. Không dùng nhãn "Ưu tiên mua" ra quyết định.
 
 Fold có CI nằm hẳn dưới 0: không có. Fold kém hơn ngẫu nhiên: C (-0.0196, độ phủ 2.7%, 23 lệnh, ngẫu nhiên -0.0039).
 
-Nhóm làm log-loss tăng khi hoán vị (lo > 0 ở ít nhất 2/3 fold; một seed, CI chưa hiệu chỉnh đa so sánh): fund (A +0.0014, B +0.0024, C +0.0043). Tỷ trọng SHAP trung bình: price 66%, text 24%, fund 10%.
+Nhóm làm log-loss tăng khi hoán vị (lo > 0 ở ít nhất 2/3 fold; một seed, CI chưa hiệu chỉnh đa so sánh): fund (A +0.0014, B +0.0024, C +0.0043). Nhóm làm log-loss giảm khi hoán vị (hi < 0; một seed, CI chưa hiệu chỉnh đa so sánh): text (C -0.0061, hi -0.0001). Tỷ trọng SHAP trung bình: price 66%, text 24%, fund 10%.
 
 ## Luật khuyến nghị
 

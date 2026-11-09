@@ -238,6 +238,7 @@ def _h_section(h, fusion, sim, perm, shares):
     every = sim[(sim["h"] == h) & (sim["fold"] == "gộp") & (sim["pham_vi"] == "toàn mẫu")].iloc[0]
     p = perm[perm["h"] == h]
     help_ = [f"{g} ({', '.join(f'{r.fold} {r.delta_logloss:+.4f}' for r in gg.itertuples())})" for g, gg in p.groupby("group") if (gg["lo"] > 0).sum() * 3 >= 2 * len(gg)]
+    hurt = [f"{g} ({', '.join(f'{r.fold} {r.delta_logloss:+.4f}, hi {r.hi:+.4f}' for r in gg.itertuples())})" for g, gg in p[p["hi"] < 0].groupby("group")]
     s = shares[shares["h"] == h].groupby("group")["share"].mean().sort_values(ascending=False)
     return [f"**T+{h}** (fusion khóa {fusion}). Theo luật: độ phủ {pool['coverage']:.1%}, {int(pool['n'])} lệnh, {int(pool['n_days'])} phiên, "
             f"lợi suất ròng trung bình {pool['mean_net']:+.4f} (CI 95% {pool['ci_lo']:+.4f} đến {pool['ci_hi']:+.4f}), ngẫu nhiên cùng số lệnh {pool['rand_median']:+.4f}. "
@@ -248,6 +249,7 @@ def _h_section(h, fusion, sim, perm, shares):
             f"Fold kém hơn ngẫu nhiên: {_cells(cells[cells['mean_net'] < cells['rand_median']], lambda r: f', ngẫu nhiên {r.rand_median:+.4f}')}.",
             "",
             f"Nhóm làm log-loss tăng khi hoán vị (lo > 0 ở ít nhất 2/3 fold; một seed, CI chưa hiệu chỉnh đa so sánh): {', '.join(help_) or 'không có'}. "
+            f"Nhóm làm log-loss giảm khi hoán vị (hi < 0; một seed, CI chưa hiệu chỉnh đa so sánh): {', '.join(hurt) or 'không có'}. "
             f"Tỷ trọng SHAP trung bình: {', '.join(f'{g} {v:.0%}' for g, v in s.items())}.", ""]
 
 

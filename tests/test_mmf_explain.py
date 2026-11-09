@@ -149,7 +149,7 @@ def test_margin_and_scores_read_no_price_after_their_block(bump_day):
 def _section_tables(mean, lo, hi, rand):
     rows = [{"h": 2, "fold": f, "pham_vi": "theo luật", "coverage": 0.2, "n": 100, "n_days": 40, "mean_net": mean, "ci_lo": lo, "ci_hi": hi, "rand_median": rand}
             for f in ("A", "gộp")] + [{"h": 2, "fold": "gộp", "pham_vi": "toàn mẫu", "coverage": 1.0, "n": 500, "n_days": 60, "mean_net": -0.01}]
-    perm = pd.DataFrame({"h": 2, "fold": list("ABC"), "group": "fund", "delta_logloss": [0.001, 0.002, 0.003], "lo": [0.0005, 0.001, -0.001]})
+    perm = pd.DataFrame({"h": 2, "fold": list("ABC"), "group": "fund", "delta_logloss": [0.001, 0.002, 0.003], "lo": [0.0005, 0.001, -0.001], "hi": [0.002, 0.003, 0.004]})
     return pd.DataFrame(rows), perm, pd.DataFrame({"h": 2, "group": ["fund"], "share": [1.0]})
 
 
@@ -177,3 +177,12 @@ def test_label_shares_and_coverage_share_one_base():
                        "as_of_session": pd.bdate_range("2024-01-01", periods=4)})
     k = X._label_shares(ev)
     assert R.simulate(ev, 0.1, 2)["coverage"] + k["share_tranh"] + k["share_khong_du"] == pytest.approx(1)
+
+
+def test_conclusion_lists_groups_whose_permutation_lowers_logloss():
+    sim, perm, shares = _section_tables(-0.005, -0.009, -0.001, -0.008)
+    perm = pd.concat([perm, pd.DataFrame({"h": 2, "fold": list("ABC"), "group": "text", "delta_logloss": [0.001, -0.002, -0.0061],
+                       "lo": [-0.001, -0.004, -0.012], "hi": [0.003, 0.0001, -0.0001]})])
+    text = "\n".join(X._h_section(2, "fusion_attention", sim, perm, shares))
+    assert "Nhóm làm log-loss giảm khi hoán vị (hi < 0; một seed, CI chưa hiệu chỉnh đa so sánh): text (C -0.0061, hi -0.0001)." in text
+    assert "giảm khi hoán vị (hi < 0; một seed, CI chưa hiệu chỉnh đa so sánh): không có" in "\n".join(X._h_section(2, "fusion_attention", sim, perm.query("group == 'fund'"), shares))

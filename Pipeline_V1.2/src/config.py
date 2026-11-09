@@ -48,6 +48,11 @@ CLASS_DOWN, CLASS_FLAT, CLASS_UP = 0, 1, 2
 N_CLASSES = 3
 LABEL_NAMES = ("Giảm", "Đi ngang", "Tăng")  # theo thứ tự chỉ số lớp 0, 1, 2
 
+# Nhãn thích ứng theo biến động (labels.py): θ = K_ADAPT · σ · √h, σ = std (ddof=1) log-return 1 phiên trong SIGMA_WINDOW phiên kết thúc tại t.
+K_ADAPT = 0.43
+SIGMA_WINDOW = 60
+LABEL_VERSION = "adaptive-k0.43-w60-v1"     # đổi khi đổi công thức/tham số nhãn
+
 # =====================================================================================================
 # 4. Mô hình (kiến trúc nằm trong models.py)
 # =====================================================================================================

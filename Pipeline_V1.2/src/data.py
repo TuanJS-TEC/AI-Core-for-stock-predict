@@ -10,7 +10,9 @@
 - r = log-return thật giữa bước T và điểm cuối cửa sổ; θ = K_THETA · std(r) trên mọi cửa sổ train của mã;
   nhãn 0 Giảm / 1 Đi ngang / 2 Tăng theo ±θ.
 """
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -53,13 +55,13 @@ def make_windows(series: np.ndarray, start: int, stop: int, L: int, T: int):
 # ---------------------------------------------------------------------------------------------------------------
 # Đọc dữ liệu
 # ---------------------------------------------------------------------------------------------------------------
-def stock_path(ticker: str):
-    return C.STOCK_DIR / C.STOCK_FILE.format(ticker=ticker)
+def stock_path(ticker: str, stock_dir=None):
+    return Path(C.STOCK_DIR if stock_dir is None else stock_dir) / C.STOCK_FILE.format(ticker=ticker)
 
 
-def load_ohlcv(ticker: str) -> pd.DataFrame:
+def load_ohlcv(ticker: str, stock_dir=None) -> pd.DataFrame:
     """OHLCV của một mã, chỉ số là ngày (đã bỏ giờ) để căn các mã, cột stamp giữ thời điểm gốc (UTC, không múi giờ)."""
-    df = pd.read_parquet(stock_path(ticker), columns=list(C.RAW_COLS)).sort_values(C.TIME_COL)
+    df = pd.read_parquet(stock_path(ticker, stock_dir), columns=list(C.RAW_COLS)).sort_values(C.TIME_COL)
     t = pd.to_datetime(df[C.TIME_COL])
     if t.dt.tz is not None:
         t = t.dt.tz_convert(None)
@@ -68,8 +70,8 @@ def load_ohlcv(ticker: str) -> pd.DataFrame:
     return df.drop(columns=C.TIME_COL)
 
 
-def load_raw(tickers=C.TICKERS) -> dict[str, pd.DataFrame]:
-    return {t: load_ohlcv(t) for t in tickers}
+def load_raw(tickers=C.TICKERS, stock_dir=None) -> dict[str, pd.DataFrame]:
+    return {t: load_ohlcv(t, stock_dir) for t in tickers}
 
 
 def check_aligned(raw: dict[str, pd.DataFrame]) -> pd.DatetimeIndex:
@@ -91,13 +93,16 @@ class Panel:
     dates: pd.DatetimeIndex              # trục ngày chung của mọi mã (đã bỏ giờ)
     stamps: np.ndarray                   # thời điểm gốc từng dòng (datetime64, duy nhất), dùng làm ngày đầu ra
     log_close: dict[str, np.ndarray]     # mã -> (n,)
+    dataset_id: str | None = None        # từ stock_dir/manifest.json; None nếu thư mục chưa có manifest
 
 
-def build_panel(tickers=C.TICKERS, raw: dict[str, pd.DataFrame] | None = None) -> Panel:
-    raw = load_raw(tickers) if raw is None else raw
+def build_panel(tickers=C.TICKERS, raw: dict[str, pd.DataFrame] | None = None, stock_dir=None) -> Panel:
+    raw = load_raw(tickers, stock_dir) if raw is None else raw
     dates = check_aligned(raw)
     stamps = raw[next(iter(raw))]["stamp"].to_numpy()
-    return Panel(dates, stamps, {t: np.log(raw[t][C.TARGET_COL].to_numpy(np.float64)) for t in tickers})
+    manifest = Path(C.STOCK_DIR if stock_dir is None else stock_dir) / "manifest.json"
+    dataset_id = json.loads(manifest.read_text())["dataset_id"] if manifest.exists() else None
+    return Panel(dates, stamps, {t: np.log(raw[t][C.TARGET_COL].to_numpy(np.float64)) for t in tickers}, dataset_id)
 
 
 # ---------------------------------------------------------------------------------------------------------------

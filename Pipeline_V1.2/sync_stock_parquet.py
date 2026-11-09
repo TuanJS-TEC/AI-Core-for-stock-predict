@@ -18,11 +18,12 @@ import glob
 import time
 import argparse
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import pandas as pd
 
 from src import config as C
+from src.snapshot import build_manifest, write_manifest
 from src.validation import check_ohlcv
 
 # Thiết lập logging
@@ -436,7 +437,11 @@ def main(argv=None):
     elapsed_time = time.time() - start_total_time
     logger.info(f"Hoàn thành toàn bộ {len(csv_files)} mã chứng khoán trong {elapsed_time:.1f} giây.")
     logger.info(f"Tất cả file Apache Parquet đã sẵn sàng tại: {stock_dir}")
-    return check_alignment(stock_dir, [os.path.basename(f).split("_")[0].upper() for f in csv_files])
+    aligned = check_alignment(stock_dir, [os.path.basename(f).split("_")[0].upper() for f in csv_files])
+    write_manifest(Path(stock_dir), build_manifest(Path(stock_dir), C.SYNC_SOURCE,
+                                                   datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                                   fetched=not args.no_fetch))
+    return aligned
 
 if __name__ == "__main__":
     main()

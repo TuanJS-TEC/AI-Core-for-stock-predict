@@ -257,7 +257,6 @@ Xác suất báo cáo (`p_down`, `p_flat`, `p_up`) là p' (đã co). Nhãn dự 
 | `SYNC_API_DELAY` | 1.0 giây | Nghỉ giữa hai lần gọi API để tránh bị chặn. |
 | `SESSION_HOUR_UTC` | 7 | Mỗi phiên ghi đúng một mốc ngày + 07:00 UTC, nên lọc trùng theo ngày là chính xác. |
 
-
 ### 3.10 Manifest, dataset_id, snapshot và các module nhãn thích ứng
 
 `sync_stock_parquet.py` ghi `stock/manifest.json` (số dòng, phiên cuối, băm nội dung từng mã) và `dataset_id` suy ra từ đó; `build_panel` chỉ nhận `dataset_id` khi manifest khớp dữ liệu vừa đọc. `python -m src.snapshot freeze` sao parquet và manifest vào `stock/snapshots/<dataset_id[:16]>` để chạy lại đúng dữ liệu đã dùng.
@@ -265,7 +264,7 @@ Xác suất báo cáo (`p_down`, `p_flat`, `p_up`) là p' (đã co). Nhãn dự 
 - `pipeline`: `experiment.json` có thêm khóa `dataset_id`; đổi `dataset_id` được coi như dữ liệu đổi nên chạy lại từ đầu.
 - `predict`: model lưu `dataset_id` trong `trained_on`/`evaluated_on`. Bảng dự đoán có thêm cột `status` (`OK` hoặc `DATA_INVALID`) và `reason`. Hàng `DATA_INVALID` (lý do `MISSING_SESSION`: thiếu phiên lẽ ra đã có, hoặc có ngày thường không giải thích được trong L phiên cuối) có xác suất NaN và `label = DATA_INVALID`; `target_date`, `target_note` vẫn được điền.
 
-Các module mới `validation`, `snapshot`, `price_features`, `labels`, `splits`, `dataset` (kiểm tra dữ liệu, manifest, đặc trưng giá/khối lượng, nhãn thích ứng theo biến động, fold theo thời gian, bộ dữ liệu huấn luyện/suy luận) là một nhánh song song: các model đang lưu trong `outputs/models/` chưa dùng chúng và vẫn huấn luyện bằng nhãn K_THETA ở trên.
+Các module mới `validation`, `snapshot`, `price_features`, `labels`, `splits`, `dataset` (kiểm tra dữ liệu, manifest, đặc trưng giá/khối lượng, nhãn thích ứng theo biến động, fold theo thời gian, bộ dữ liệu huấn luyện/suy luận) chưa được các model đang lưu trong `outputs/models/` sử dụng: các model này vẫn huấn luyện bằng nhãn K_THETA ở trên. Riêng kiểm tra dữ liệu (`validation`, `Panel.gaps`) đã được `build_panel` và `predict` dùng. `features_ok` cô lập lỗi theo từng mã chỉ khi Panel được dựng tay (như trong `tests/test_dataset.py`); qua `build_panel`, một mã có tập ngày khác các mã còn lại làm `check_aligned` ném `ValueError` cho cả lần dựng, nên không tới được bước đó.
 
 ---
 

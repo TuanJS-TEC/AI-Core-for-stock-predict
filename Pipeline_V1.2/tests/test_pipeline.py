@@ -337,6 +337,22 @@ def test_predict_data_invalid_when_gap_inside_window(small_run):
     assert (PR.predict(TICKERS, panel, models_dir, now=now)["status"] == "OK").all()
 
 
+def test_invalid_text_and_gap_hint_for_demo_and_main(small_run):
+    run_dir, models_dir, _, panel = small_run
+    PR.update_models(run_dir, panel, TICKERS, models_dir, log=lambda *_: None)
+    now = panel.dates[-1] + pd.Timedelta(hours=18)
+    ok = PR.predict(TICKERS, panel, models_dir, now=now).iloc[0]
+    panel.gaps = pd.DatetimeIndex([panel.dates[-10]])
+    bad = PR.predict(TICKERS, panel, models_dir, now=now).iloc[0]
+    assert PR.invalid_text(ok) is None and PR.invalid_text(ok.drop(["status", "reason"])) is None
+    assert PR.invalid_text(bad) == "DATA_INVALID (MISSING_SESSION)"
+    hint = PR.gap_hint(panel.gaps)
+    assert str(panel.dates[-10].date()) in hint and "hose_holidays.csv" in hint and "chạy lại sync" in hint
+    assert PR.gap_hint(None) == "" and PR.gap_hint(pd.DatetimeIndex([])) == ""
+    assert PR.gap_hint(pd.bdate_range("2027-02-01", periods=8)).count("-") < 40 and "..." in PR.gap_hint(
+        pd.bdate_range("2027-02-01", periods=8))
+
+
 def test_target_date_skips_weekends_and_holidays(panel):
     hol = PR.market_holidays(panel)
     d = panel.dates

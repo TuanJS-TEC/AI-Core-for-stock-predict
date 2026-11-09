@@ -1,4 +1,9 @@
-"""Dataset giá dùng chung cho train và inference: cả hai đi qua _features nên đặc trưng giống hệt."""
+"""Dataset giá dùng chung cho train và inference: cả hai đi qua _features nên đặc trưng giống hệt.
+
+Lưu ý: `features_ok` cô lập lỗi theo từng mã chỉ khi Panel được dựng tay (như trong tests/test_dataset.py). Qua
+`build_panel`, một mã có tập ngày khác các mã còn lại làm `check_aligned` ném ValueError cho cả lần dựng, nên
+không tới được bước này.
+"""
 from __future__ import annotations
 
 import numpy as np

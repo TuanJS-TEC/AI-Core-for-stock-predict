@@ -16,8 +16,8 @@ import streamlit as st
 
 from src import config as C, metrics as M
 from src.data import build_panel, raw_windows
-from src.predict import (WEEKDAY_NAMES, build, forward, load_artifact, market_holidays, missing_sessions,
-                         model_path, predict, session_after)
+from src.predict import (WEEKDAY_NAMES, build, forward, invalid_text, load_artifact, market_holidays,
+                         missing_sessions, model_path, predict, session_after)
 from src.report import to_price
 
 LABEL_MARK = {"Giảm": "▼", "Đi ngang": "▶", "Tăng": "▲"}
@@ -73,6 +73,16 @@ def forecast_curve(a: dict, model, panel, holidays: np.ndarray, start: pd.Timest
 
 
 def label_card(row: pd.Series) -> None:
+    problem = invalid_text(row)
+    if problem:                                                     # dữ liệu không hợp lệ: không có nhãn/xác suất
+        with st.container(border=True):
+            st.markdown(f"**L = {row['L']} phiên** · {row['model']}")
+            grey = C.DEMO_LABEL_COLORS["Đi ngang"]
+            st.markdown(f"<div style='font-size:1.4rem;font-weight:700;color:{grey}'>{problem}</div>",
+                        unsafe_allow_html=True)
+            st.caption("Dữ liệu thiếu phiên hoặc có ngày chưa giải thích được; chạy `python sync_stock_parquet.py` "
+                       "hoặc khai báo ngày nghỉ rồi tải lại trang.")
+        return
     label = row["label"]
     p = row[C.PROB_COLS[C.LABEL_NAMES.index(label)]]
     color = C.DEMO_LABEL_COLORS[label]

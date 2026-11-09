@@ -201,6 +201,20 @@ def invalid_reason(panel: Panel, L: int, now: pd.Timestamp, holidays: np.ndarray
     return None
 
 
+def invalid_text(row) -> str | None:
+    """"DATA_INVALID (<reason>)" nếu hàng dự đoán bị từ chối, ngược lại None (bảng cũ không có cột status coi là OK)."""
+    return None if row.get("status", "OK") == "OK" else f"DATA_INVALID ({row.get('reason', '')})"
+
+
+def gap_hint(gaps, show: int = 5) -> str:
+    """Gợi ý xử lý ngày thường không có dữ liệu và chưa khai báo nghỉ; rỗng nếu không có."""
+    if gaps is None or len(gaps) == 0:
+        return ""
+    days = ", ".join(str(d.date()) for d in gaps[:show]) + (", ..." if len(gaps) > show else "")
+    return (f"Có {len(gaps)} ngày thường không có dữ liệu và chưa khai báo nghỉ ({days}): thêm vào "
+            f"data/hose_holidays.csv hoặc C.MARKET_HOLIDAYS nếu đó là ngày nghỉ; nếu là phiên thiếu thì chạy lại sync.")
+
+
 def predict_latest(a: dict, panel: Panel, holidays: np.ndarray | None = None, reason: str | None = None) -> dict:
     """Xác suất 3 nhãn cho T phiên sau phiên cuối của dữ liệu, từ L phiên mới nhất. reason khác None (dữ liệu không
     hợp lệ): status DATA_INVALID, xác suất NaN, nhãn DATA_INVALID."""
@@ -289,6 +303,8 @@ def main() -> None:
     if len(bad):
         print(f"DATA_INVALID: {len(bad)}/{len(table)} dự đoán bị từ chối ({', '.join(sorted(set(bad['reason'])))}); "
               f"cột status/reason cho biết hàng nào, xác suất để trống (NaN).")
+    if gap_hint(panel.gaps):
+        print(gap_hint(panel.gaps))
     print(table.drop(columns=["last_date", "predicted_at", "target_note"]).to_string(index=False, na_rep="NaN"))
     print(f"Đã ghi {out}")
 

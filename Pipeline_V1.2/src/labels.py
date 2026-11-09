@@ -23,7 +23,7 @@ def make_labels(frame: pd.DataFrame, h: int, k: float = C.K_ADAPT, window: int =
 
     status = pd.Series("ok", index=frame.index, dtype=object)
     status[~(theta > 0)] = "bad_sigma"                                   # NaN hoặc <= 0
-    status[close.isna().rolling(h + 1).sum().shift(-h) > 0] = "missing_session"
+    status[close.isna().rolling(h + 1, min_periods=h + 1).sum().shift(-h) > 0] = "missing_session"
     status[target_session.isna()] = "not_matured"                        # ghi cuối: ưu tiên cao nhất
 
     label = pd.Series(pd.NA, index=frame.index, dtype="Int64")

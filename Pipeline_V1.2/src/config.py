@@ -180,7 +180,7 @@ SYNC_API_DELAY = 3.0                        # nghỉ (giây) giữa hai lần g�
 SYNC_BASIS_TOL = 0.005                      # nghìn đồng; lệch giá đóng cửa quá mức này ở phiên đã lưu = chuẩn điều chỉnh đã đổi
 SYNC_RET_BAND = 0.072                       # |lợi suất ngày| lớn hơn mức này ở phiên mới = nghi đổi chuẩn điều chỉnh
 SYNC_INIT_START = "2021-01-04"                # ngày bắt đầu tải lịch sử cho mã mới (--init)
-SYNC_SOURCE = "kbs"                        # nguồn vnstock cho Quote(source=...); đã kiểm khớp parquet đã lưu, vci trả thêm phiên và giờ khác
+SYNC_SOURCE = "tcbs"                       # nguồn Open API của vnstock thế hệ 6 (Market(SYNC_SOURCE)); khoá: `vnstock keys set tcbs`, phiên: `vnstock auth tcbs` (Smart OTP, hết hạn sau vài giờ). Trước đó là "kbs" của vnstock 4.x.
 SYNC_OVERLAP_SESSIONS = 20                  # tải chồng ngần này phiên gần nhất để so với dữ liệu đã lưu
 HOLIDAYS_FILE = ROOT / "data" / "hose_holidays.csv"   # ngày nghỉ HOSE (cột date,verified); hợp với MARKET_HOLIDAYS
 SESSION_HOUR_UTC = 7                        # mỗi phiên ghi đúng một mốc: ngày + 07:00 UTC (định dạng gốc trong docs/dataset.md)

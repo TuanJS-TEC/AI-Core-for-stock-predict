@@ -6,3 +6,4 @@ Pipeline_V1.2/outputs/
 .pytest_cache/
 __pycache__/
 .superpowers/
+vnstock-migration/

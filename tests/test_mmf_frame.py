@@ -68,3 +68,10 @@ def test_real_retention_at_least_99_percent(frame):
     s = W.make_samples(frame, u, PC.TICKERS)
     assert len(s) >= 0.99 * len(u)
     assert (s.row_index == u.index[np.isin(u.index, s.row_index)]).all()   # block order kept
+
+def test_block_rows_only_selects_x_fund_comes_from_scaled_frame(frame):
+    u = frame[frame.usable & frame.as_of_session.between("2024-03-01", "2024-04-30")]
+    sc = W.Scalers.fit(frame[frame.usable]).apply(frame)
+    a, b = (W.make_samples(sc, r, PC.TICKERS) for r in (u, sc.loc[u.index]))
+    np.testing.assert_array_equal(a.x_fund, b.x_fund)
+    assert np.abs(a.x_fund).max() <= W.CLIP

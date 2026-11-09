@@ -58,11 +58,11 @@ def make_samples(scaled_frame, block_rows, tickers, lp=C.LP, lt=C.LT):
         mine = f[f["symbol"].astype(str) == sym].set_index("as_of_session")
         mine = mine[~mine.index.duplicated()].reindex(cal)             # sessions on the calendar, NaN where absent
         pos = cal.get_indexer(rows["as_of_session"])
-        keep = pos >= lp - 1                                           # window must fit inside the calendar
+        keep = pos >= max(lp, lt) - 1                                  # windows must fit inside the calendar
         rows, pos = rows[keep], pos[keep]
         xp = mine[GROUPS["price"]].to_numpy(np.float32)[pos[:, None] + np.arange(1 - lp, 1)]
         xt = mine[GROUPS["text"]].to_numpy(np.float32)[pos[:, None] + np.arange(1 - lt, 1)]
-        xf = rows[GROUPS["fund"]].to_numpy(np.float32)
+        xf = mine[GROUPS["fund"]].to_numpy(np.float32)[pos]            # scaled frame only; block_rows just selects
         ok = (np.isfinite(xp).all((1, 2)) & np.isfinite(xt).all((1, 2)) & np.isfinite(xf).all(1))
         for k, v in zip(parts, (xp, xt, xf, np.full(len(rows), t), rows.index.to_numpy())):
             parts[k].append(v[ok])

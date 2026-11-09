@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from . import config as C
 from .metrics import class_prior
+from .validation import load_holidays, trading_calendar, unexplained_gaps
 
 
 def split_sizes(n: int) -> tuple[int, int, int]:
@@ -95,6 +96,15 @@ class Panel:
     stamps: np.ndarray                   # thời điểm gốc từng dòng (datetime64, duy nhất), dùng làm ngày đầu ra
     log_close: dict[str, np.ndarray]     # mã -> (n,)
     dataset_id: str | None = None        # từ stock_dir/manifest.json; None nếu thư mục chưa có manifest
+    ohlcv: dict[str, pd.DataFrame] | None = None   # mã -> OHLCV float64, chỉ số session_date (= dates); None nếu dựng tay
+    calendar: pd.DatetimeIndex | None = None       # ngày thường trừ ngày nghỉ, hợp với ngày có dữ liệu
+    gaps: pd.DatetimeIndex | None = None           # ngày thường không có dữ liệu và không là ngày nghỉ
+
+    def on_calendar(self, ticker: str) -> pd.DataFrame:
+        """OHLCV của mã trên lịch phiên; ngày thiếu là NaN, không điền."""
+        if self.ohlcv is None or self.calendar is None:
+            raise ValueError("Panel không có ohlcv/calendar; dựng bằng build_panel")
+        return self.ohlcv[ticker].reindex(self.calendar)
 
 
 def manifest_id(stock_dir, raw: dict[str, pd.DataFrame], tickers) -> str | None:
@@ -117,13 +127,21 @@ def manifest_id(stock_dir, raw: dict[str, pd.DataFrame], tickers) -> str | None:
         return None
 
 
-def build_panel(tickers=C.TICKERS, raw: dict[str, pd.DataFrame] | None = None, stock_dir=None) -> Panel:
+def build_panel(tickers=C.TICKERS, raw: dict[str, pd.DataFrame] | None = None, stock_dir=None,
+                holidays: np.ndarray | None = None) -> Panel:
     injected = raw
     raw = load_raw(tickers, stock_dir) if raw is None else raw
     dates = check_aligned(raw)
     stamps = raw[next(iter(raw))]["stamp"].to_numpy()
     dataset_id = manifest_id(stock_dir, raw, tickers) if injected is None else None   # raw bơm vào: không rõ nguồn
-    return Panel(dates, stamps, {t: np.log(raw[t][C.TARGET_COL].to_numpy(np.float64)) for t in tickers}, dataset_id)
+    holidays = load_holidays() if holidays is None else holidays
+    gaps = unexplained_gaps(dates, holidays)
+    if len(gaps):
+        warnings.warn(f"{len(gaps)} ngày thường không có dữ liệu và không là ngày nghỉ, đầu tiên {gaps[0].date()}")
+    ohlcv = {t: raw[t][list(C.PRICE_COLS) + [C.VOLUME_COL]].astype(np.float64).rename_axis("session_date")
+             for t in tickers}
+    return Panel(dates, stamps, {t: np.log(raw[t][C.TARGET_COL].to_numpy(np.float64)) for t in tickers}, dataset_id,
+                 ohlcv, trading_calendar(dates[0], dates[-1], holidays, observed=dates), gaps)
 
 
 # ---------------------------------------------------------------------------------------------------------------

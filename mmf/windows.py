@@ -40,7 +40,7 @@ class Samples:
     symbol: np.ndarray
     as_of: np.ndarray
     label_end: np.ndarray
-    row_index: np.ndarray    # frame index of each kept row
+    row_index: np.ndarray = None    # frame index of each kept row
 
     def __len__(self):
         return len(self.y)

@@ -74,6 +74,15 @@ MIN_DELTA = 1e-9                            # mức giảm tối thiểu của M
 WEIGHT_DECAYS = (0.0, 1e-2)                 # lưới weight decay của Adam
 # Lưới nhỏ cho --quick: kiểm tra toàn bộ luồng trong vài phút, không dùng để kết luận
 QUICK_GRID = {"horizons": (2,), "lookbacks": (30,), "models": ("NLinear",), "seeds": tuple(SEEDS[:2])}
+BLOCK_SESSIONS = 63                         # độ dài mỗi khối tune/calib/eval, tính theo phiên giao dịch
+# (name, train_end, tune_end, calib_end, eval_end) cho fold A, B, C. Sinh một lần ngày 2026-11-09 bằng
+# splits.make_date_folds(build_panel().calendar, "2026-10-30") trên dữ liệu thật (1457 phiên, 2021-01-04..2026-11-09).
+# ĐÓNG BĂNG CÓ CHỦ ĐÍCH: không tính lại lúc chạy, để dữ liệu mới append không dời mốc.
+DATE_FOLDS = (
+    ("A", "2025-07-25", "2025-10-24", "2026-01-23", "2026-05-04"),
+    ("B", "2025-10-24", "2026-01-23", "2026-05-04", "2026-07-30"),
+    ("C", "2026-01-23", "2026-05-04", "2026-07-30", "2026-10-30"),
+)
 
 # =====================================================================================================
 # 6. Hiệu chỉnh xác suất và quy tắc chọn nhãn (metrics.py), fit trên val riêng từng mã

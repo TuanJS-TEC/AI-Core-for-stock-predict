@@ -9,11 +9,11 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
-from . import config as C   # first: puts `src` on sys.path
+from . import config as C
 from . import evaluate as E
 from .experiment import PRIOR_COLS, _git_commit
-from src import config as PC
-from src.splits import folds_from_config
+from ai_core.prices import config as PC
+from ai_core.prices.splits import folds_from_config
 
 UNIMODAL = ("dl_price", "dl_fund", "dl_text")
 FUSION = ("fusion_concat", "fusion_attention", "stack")

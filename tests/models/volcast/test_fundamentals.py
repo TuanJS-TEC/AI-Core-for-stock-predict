@@ -1,7 +1,7 @@
 import pandas as pd
 from pytest import approx
 
-from nlp_module.forecast.fundamentals import WINDOW_D, add_fund, profit_change
+from ai_core.models.volcast.fundamentals import WINDOW_D, add_fund, profit_change
 
 
 def test_profit_change_reads_sign_and_skips_other_profit_lines():
@@ -35,7 +35,7 @@ def test_filing_counts_only_after_its_backtest_availability_and_expires():
 
 
 def test_annual_wide_pivots_items_and_dates_availability_after_audit_deadline():
-    from nlp_module.forecast.fundamentals import annual_wide
+    from ai_core.models.volcast.fundamentals import annual_wide
     long = pd.DataFrame({"ticker": ["VCB", "FPT", "FPT"], "year": [2024, 2024, 2024],
                          "item_code": ["is_loi_nhuan_sau_thue", "is_lai_lo_thuan_sau_thue", "is_doanh_so_thuan"],
                          "value": [3.4e13, 9.4e12, 6.3e13]})
@@ -55,7 +55,7 @@ def test_profit_change_prefers_consolidated_over_separate():
 
 
 def test_bctc_features_and_availability(tmp_path):
-    from nlp_module.forecast.fundamentals import add_bctc, bctc_features
+    from ai_core.models.volcast.fundamentals import add_bctc, bctc_features
     rows = [("AAA", y, code, v) for y, np_, eq, ta in ((2023, -50.0, 500.0, 1000.0), (2024, 100.0, 400.0, 1000.0))
             for code, v in (("is_lai_lo_thuan_sau_thue", np_), ("bs_von_chu_so_huu_4d280b22", eq), ("bs_tong_tai_san", ta))]
     pd.DataFrame(rows, columns=["ticker", "year", "item_code", "value"]).to_parquet(tmp_path / "b.parquet")

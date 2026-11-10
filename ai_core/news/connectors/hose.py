@@ -12,6 +12,8 @@ import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+from ai_core import paths
 from urllib.parse import quote, urlencode
 
 from .base import ParsedDoc
@@ -23,7 +25,7 @@ STATIC = "https://staticfile.hsx.vn"                     # filePath "~/Uploads/.
 CATE = "tin-tuc/tin-to-chuc-niem-yet"
 PREFILTERED = True        # discover() already keeps only tracked tickers; the title matcher would drop VND/HCM/GAS
 MAX_PAGES = 6             # ponytail: an explanation is 1-4 pages; a full BCTC attached by mistake would cost minutes of OCR
-TESSDATA = Path(__file__).resolve().parents[2] / "data" / "tessdata"
+TESSDATA = paths.NEWS_HOME / "data" / "tessdata"
 
 _DOC = re.compile(r"giải trình.*(kqkd|kết quả kinh doanh|lnst|lợi nhuận|bctc|báo cáo tài chính)", re.I)
 # the cover page's uppercase heading; the explanation itself often says "Về việc công bố thông tin" in lowercase

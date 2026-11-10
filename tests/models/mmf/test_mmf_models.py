@@ -1,6 +1,6 @@
 import pytest, torch
-from mmf import config as C
-from mmf.models import FusionNet
+from ai_core.models.mmf import config as C
+from ai_core.models.mmf.models import FusionNet
 
 def inputs(n=4):
     return torch.randn(n, C.LP, 25), torch.randn(n, C.LT, 14), torch.randn(n, 10), torch.zeros(n, dtype=torch.long)

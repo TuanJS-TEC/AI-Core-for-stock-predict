@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from nlp_module.forecast import trial_forecast as tf
-from nlp_module.forecast.walk_forward import PRICE, RANK_COLS, _split, forecast_fold
+from ai_core.models.volcast import trial_forecast as tf
+from ai_core.models.volcast.walk_forward import PRICE, RANK_COLS, _split, forecast_fold
 
 
 def test_fold_windows_are_purged_and_disjoint():

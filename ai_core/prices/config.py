@@ -5,10 +5,12 @@ Các module khác dùng `from . import config as C` và không tự đặt hằn
 """
 from pathlib import Path
 
+from ai_core import paths
+
 # =====================================================================================================
 # 1. Dữ liệu đầu vào
 # =====================================================================================================
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = paths.PRICES_HOME
 STOCK_DIR = ROOT / "stock"                  # thư mục chứa {mã}_stock.parquet (và bản .csv để xem định dạng)
 STOCK_FILE = "{ticker}_stock.parquet"       # tên file dữ liệu của một mã
 STOCK_CSV_GLOB = "*_stock.csv"              # mẫu tên file CSV gốc dùng khi đồng bộ dữ liệu

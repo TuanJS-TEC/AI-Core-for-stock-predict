@@ -3,7 +3,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-JAR_DIR = Path(__file__).resolve().parents[2] / "data" / "vncorenlp"
+from ai_core import paths
+
+JAR_DIR = paths.NEWS_HOME / "data" / "vncorenlp"
 _END = "ZZZENDZZZ"
 
 

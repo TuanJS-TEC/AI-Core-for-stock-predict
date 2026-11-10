@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ai_core import config as C
-from ai_core.direction import (FEATS, add_labels, boot_ci, build_frame, folds, go, long_mask, main, run_fold,
+from ai_core.fusion import config as C
+from ai_core.fusion.direction import (FEATS, add_labels, boot_ci, build_frame, folds, go, long_mask, main, run_fold,
                                select_on_val, sleeve_turnover)
 
 N, WARM = 40, 20

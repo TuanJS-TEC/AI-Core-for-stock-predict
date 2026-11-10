@@ -5,10 +5,11 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ai_core import paths
 from .connectors.base import ParsedDoc, content_hash, normalize_url
 from .text import normalize
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = paths.NEWS_HOME
 DB_PATH = ROOT / "data" / "nlp.db"
 RAW_DIR = ROOT / "data" / "raw"
 SCHEMA = Path(__file__).with_name("schema.sql")

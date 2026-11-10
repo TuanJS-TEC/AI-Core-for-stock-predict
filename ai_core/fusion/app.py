@@ -1,6 +1,5 @@
 """NLP Module Inspector — Streamlit debugging UI for the Vietnamese stock sentiment model."""
 import re
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -10,12 +9,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
-ROOT = Path(__file__).parent
-sys.path.insert(0, str(ROOT))
+from ai_core import paths
+from ai_core.models.volcast import volcast
+from ai_core.news.text import normalize
+from ai_core.news.sentiment.base import LABELS, entropy as calc_entropy
 
-from nlp_module.forecast import volcast
-from nlp_module.text import normalize
-from nlp_module.sentiment.base import LABELS, entropy as calc_entropy
+ROOT = paths.NEWS_HOME   # the news data home (data/nlp.db, data/reports, data/models)
 
 # ── constants ───────────────────────────────────────────────────────────────
 # NOT "Tăng"/"Giảm": the model judges the company's prospects in the passage, never the price direction
@@ -193,9 +192,9 @@ def db_vol_forecast(version: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def db_fusion_decision() -> pd.DataFrame:
-    """Newest fusion_decision row per (symbol, h), written by `python -m ai_core.live`. Read-only; empty if table missing."""
+    """Newest fusion_decision row per (symbol, h), written by `python -m ai_core.fusion.live`. Read-only; empty if table missing."""
     import sqlite3
-    from nlp_module.board import newest_decisions
+    from ai_core.fusion.board import newest_decisions
     con = sqlite3.connect(f"file:{DATA_DIR / 'nlp.db'}?mode=ro", uri=True)
     try:
         return newest_decisions(con)
@@ -207,7 +206,7 @@ def db_fusion_decision() -> pd.DataFrame:
 def db_snapshot_passages(symbol: str, cutoff: str) -> pd.DataFrame:
     """Passages behind one board row (same selection as the live snapshot). Read-only."""
     import sqlite3
-    from nlp_module.board import snapshot_passages
+    from ai_core.fusion.board import snapshot_passages
     con = sqlite3.connect(f"file:{DATA_DIR / 'nlp.db'}?mode=ro", uri=True)
     try:
         return snapshot_passages(con, symbol, pd.Timestamp(cutoff), "baseline-tfidf-lr-v1")
@@ -234,10 +233,10 @@ def vol_report() -> dict:
 
 def fetch_quotes_now(symbols, version):
     """One polite request to the SSI board + the live sentiment join. Only ever called from a button."""
-    from nlp_module import storage
-    from nlp_module.connectors import ssi
-    from nlp_module.http import Fetcher
-    from nlp_module.pipeline import sentiment_vs_price
+    from ai_core.news import storage
+    from ai_core.news.connectors import ssi
+    from ai_core.news.http import Fetcher
+    from ai_core.news.pipeline import sentiment_vs_price
     c = storage.connect()
     qs = ssi.quotes(Fetcher(min_interval=1.0), symbols)
     storage.save_quotes(c, qs, ssi.SOURCE)
@@ -249,9 +248,9 @@ def fetch_quotes_now(symbols, version):
 @st.cache_data(ttl=300)
 def latest_cmp(version, symbols):
     """The last stored board reading (cron or button) joined with live sentiment - no request to SSI."""
-    from nlp_module import storage
-    from nlp_module.connectors.ssi import Quote
-    from nlp_module.pipeline import sentiment_vs_price
+    from ai_core.news import storage
+    from ai_core.news.connectors.ssi import Quote
+    from ai_core.news.pipeline import sentiment_vs_price
     q = db_quotes()
     if q.empty:
         return pd.DataFrame(), None
@@ -301,7 +300,7 @@ def load_model(key: str):
 
 def _segment(text: str) -> str:
     try:
-        from nlp_module.sentiment.segment import segment
+        from ai_core.news.sentiment.segment import segment
         return segment([text])[0]
     except Exception:
         return text  # fallback: raw text (VnCoreNLP/Java unavailable)
@@ -740,7 +739,7 @@ with tab_calib:
         a2.metric("Accuracy (kept)", f"{ok_valid[keep].mean():.1%}" if keep.any() else "—")
         a3.metric("Abstained", int((~keep).sum()))
 
-        from nlp_module.evaluate import abstention_curve
+        from ai_core.news.evaluate import abstention_curve
         curve = abstention_curve(true_lbls, all_probs_valid)
         cdf = pd.DataFrame(curve, columns=["h_thresh", "coverage", "accuracy"])
         fig_c = go.Figure(go.Scatter(x=cdf["coverage"], y=cdf["accuracy"],
@@ -775,7 +774,7 @@ with tab_stock:
 
     vers = db_versions()
     if not vers:
-        st.error("Chưa có kết quả nào trong `data/nlp.db`. Chạy `nlp_module process --model ...` trước.")
+        st.error("Chưa có kết quả nào trong `data/nlp.db`. Chạy `ai_core.news process --model ...` trước.")
         st.stop()
 
     hc = st.columns([2, 2, 3])
@@ -859,7 +858,7 @@ Mã chỉ xuất hiện như **khoản đầu tư / đối tác / mốc địa l
         p_[2].metric("Phiên", str(lq["session"] or "—"))
         p_[3].metric("Đọc lúc", f"{lq['fetched_at']:%d/%m %H:%M} UTC")
         st.caption("Giá là bản đọc đã lưu gần nhất, không phải realtime. Cập nhật ở tab "
-                   "**Sentiment vs Giá SSI** hoặc bằng `nlp_module quotes`. "
+                   "**Sentiment vs Giá SSI** hoặc bằng `ai_core.news quotes`. "
                    "Sentiment ở trên **không** dự báo con số này.")
     else:
         st.caption("Chưa có giá đã lưu cho mã này — xem tab **Sentiment vs Giá SSI**.")
@@ -908,7 +907,7 @@ Mã chỉ xuất hiện như **khoản đầu tư / đối tác / mốc địa l
                    + ("" if rows_ == 3 else f"`data/prices.csv` không có giá cho {sym}."))
     else:
         st.info(f"Chưa có file snapshot cho `{ver}`. Chạy "
-                f"`nlp_module snapshot --model ... --mode backtest ...` để xem chuỗi thời gian.")
+                f"`ai_core.news snapshot --model ... --mode backtest ...` để xem chuỗi thời gian.")
 
     mix = (d_show.assign(month=d_show["published_at"].dt.tz_convert(None).dt.to_period("M").astype(str))
            .groupby(["month", "pred"]).size().unstack(fill_value=0).reindex(columns=LABELS, fill_value=0))
@@ -1107,7 +1106,7 @@ không phải tỷ lệ đúng. Với 7 mã so được, chênh lệch vài ph�
     qh = db_quotes()
     if qh.empty:
         st.info("Chưa có bản ghi nào. Mỗi lần bấm **Lấy giá SSI ngay** (hoặc chạy "
-                "`nlp_module -v quotes`) sẽ lưu một lần đọc vào bảng `market_quote`.")
+                "`ai_core.news -v quotes`) sẽ lưu một lần đọc vào bảng `market_quote`.")
     else:
         st.caption(f"{len(qh)} bản ghi · {qh['symbol'].nunique()} mã · "
                    f"{qh['fetched_at'].min():%d/%m/%Y %H:%M} → {qh['fetched_at'].max():%d/%m/%Y %H:%M} UTC")
@@ -1115,7 +1114,7 @@ không phải tỷ lệ đúng. Với 7 mã so được, chênh lệch vài ph�
         h = qh[qh["symbol"] == hsym]
         if len(h) < 2:
             st.info(f"Chỉ có {len(h)} bản ghi cho {hsym}. Cần ít nhất 2 lần đọc để vẽ diễn biến — "
-                    "chạy `nlp_module quotes` định kỳ (ví dụ qua `/loop` hoặc cron).")
+                    "chạy `ai_core.news quotes` định kỳ (ví dụ qua `/loop` hoặc cron).")
         figh = go.Figure()
         figh.add_scatter(x=h["fetched_at"], y=h["matched_price"], mode="lines+markers",
                          name="Giá khớp", line=dict(color="#2563eb", width=1.6))
@@ -1125,12 +1124,12 @@ không phải tỷ lệ đúng. Với 7 mã so được, chênh lệch vài ph�
                            legend=dict(orientation="h", y=1.2),
                            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(figh, width="stretch", key="qhist_chart")
-        st.caption("Để theo dõi liên tục: `nlp_module -v quotes --symbols VIC VHM …` ghi thêm một bản ghi "
+        st.caption("Để theo dõi liên tục: `ai_core.news -v quotes --symbols VIC VHM …` ghi thêm một bản ghi "
                    "mỗi lần chạy, kèm log một dòng cho mỗi mã (sentiment vs giá thật vs so với thị trường).")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# VOLATILITY FORECAST (reads vol_forecast + walk-forward report; writing is `python -m nlp_module.forecast.volcast`)
+# VOLATILITY FORECAST (reads vol_forecast + walk-forward report; writing is `python -m ai_core.models.volcast.volcast`)
 # ════════════════════════════════════════════════════════════════════════════
 with tab_vol:
     st.header("Dự báo biến động")
@@ -1141,7 +1140,7 @@ with tab_vol:
     _rep = vol_report()
     if _vf.empty or not _rep or not (ROOT / volcast.BUNDLE).exists():
         st.info("Chưa có dự báo biến động (thiếu model, báo cáo hoặc bảng `vol_forecast` còn rỗng). Chạy:\n\n"
-                "```\npython -m nlp_module.forecast.volcast train\npython -m nlp_module.forecast.volcast predict\n```")
+                "```\npython -m ai_core.models.volcast.volcast train\npython -m ai_core.models.volcast.volcast predict\n```")
     else:
         _lbl = {"strong": "Mạnh", "weak": "Yếu"}
         _vf["cell"] = [f"{_lbl.get(c, '—')} ({p:.2f})" for c, p in zip(_vf["call"], _vf["p_strong"])]
@@ -1298,16 +1297,16 @@ with tab_board:
     _fd = db_fusion_decision()
     if _fd.empty:
         st.info("Chưa có quyết định (bảng `fusion_decision` còn rỗng). Chạy:\n\n"
-                "```\ncd .. && NLP_Module/.venv/bin/python -m ai_core.live\n```")
+                "```\ncd .. && NLP_Module/.venv/bin/python -m ai_core.fusion.live\n```")
     else:
-        from nlp_module.board import mark_stale
+        from ai_core.fusion.board import mark_stale
         _pd = latest_price_date()
         _bd = pd.Timestamp(_fd["base_date"].max())
         if _pd is None:
             st.warning("Không đọc được dữ liệu giá (`data/stock`), nên không so được độ mới của quyết định.")
         elif _bd < _pd:
             st.warning(f"Quyết định mới nhất thuộc phiên {_bd:%d/%m/%Y}, cũ hơn giá mới nhất ({_pd:%d/%m/%Y}). "
-                       "`ai_core.live` chưa chạy sau lần đồng bộ giá gần nhất.")
+                       "`ai_core.fusion.live` chưa chạy sau lần đồng bộ giá gần nhất.")
         _fd = mark_stale(_fd, _pd)   # hàng cũ hơn phiên mới nhất của bảng/giá -> DATA_INVALID (stale)
         _bad = _fd[_fd["decision"].str.startswith("DATA_INVALID")]
         if not _bad.empty:
@@ -1325,7 +1324,7 @@ with tab_board:
                                     "Sentiment 24h": st.column_config.NumberColumn(format="%+.3f")})
         st.caption("Volcast \"—\" = chưa đủ tự tin để nhận định (hoặc DATA_INVALID, hoặc mã ngoài danh sách volcast). "
                    "Sentiment trống = không có tin trong 24 giờ. **DATA_INVALID (stale)** = hàng của mã này cũ hơn phiên "
-                   "mới nhất (đồng bộ giá của mã lỗi hoặc `ai_core.live` chưa chạy lại), nên Volcast/p_strong bị ẩn. "
+                   "mới nhất (đồng bộ giá của mã lỗi hoặc `ai_core.fusion.live` chưa chạy lại), nên Volcast/p_strong bị ẩn. "
                    "Cờ rủi ro là từ khoá khớp trong passage 72 giờ, **không nhất thiết về chính công ty** "
                    "(công ty có thể không phải chủ thể bài).")
 
@@ -1345,5 +1344,5 @@ with tab_board:
         st.caption("Danh sách dùng **đúng cách chọn của snapshot live**: passage đại diện (bỏ bài lặp), `relation` khác `market`, "
                    "**đã được xử lý** (`processed_at`) trong 72 giờ trước 15:00 phiên căn cứ — không phải theo ngày đăng, "
                    "nên bài đăng cũ nhưng thu thập muộn vẫn có mặt. Số dòng có thể lệch với hàng trên bảng nếu pipeline đã "
-                   "xử lý thêm bài từ lúc `ai_core.live` chạy. Cờ rủi ro dò theo từ khoá (`risk_flags`), không phải đầu ra model, "
+                   "xử lý thêm bài từ lúc `ai_core.fusion.live` chạy. Cờ rủi ro dò theo từ khoá (`risk_flags`), không phải đầu ra model, "
                    "và không nhất thiết về chính công ty (công ty có thể không phải chủ thể bài).")

@@ -1,4 +1,4 @@
-"""Bootstrap theo khối trên trục ngày (dùng bởi ai_core.direction)."""
+"""Bootstrap theo khối trên trục ngày (dùng bởi ai_core.fusion.direction)."""
 import numpy as np
 
 

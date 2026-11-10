@@ -1,7 +1,7 @@
 import pandas as pd
 
-from ai_core import config as C
-from ai_core.prices import load_prices
+from ai_core.fusion import config as C
+from ai_core.fusion.prices import load_prices
 
 
 def test_prices_aligned_and_unique():
@@ -15,7 +15,7 @@ def test_prices_aligned_and_unique():
 
 
 def test_volcast_reads_canonical_prices():
-    from nlp_module.forecast import volcast
+    from ai_core.models.volcast import volcast
     h = volcast.load_history(symbols=volcast.SYMBOLS).set_index(["symbol", "date"]).close.sort_index()
     p = load_prices().set_index(["symbol", "date"]).close.sort_index()
     assert set(h.index.get_level_values(0)) == set(volcast.SYMBOLS) and set(volcast.SYMBOLS) <= set(C.UNIVERSE)   # volcast widens to all 20 in Task 7
@@ -23,7 +23,7 @@ def test_volcast_reads_canonical_prices():
 
 
 def test_load_history_symbols_filter(tmp_path):
-    from nlp_module.forecast import volcast
+    from ai_core.models.volcast import volcast
     for s in ("AAA", "BBB"):
         pd.DataFrame({"time": ["2026-01-02"], "close": [1.0], "high": [1.0], "low": [1.0], "volume": [1]}
                      ).to_csv(tmp_path / f"{s}_stock.csv", index=False)
@@ -32,5 +32,5 @@ def test_load_history_symbols_filter(tmp_path):
 
 
 def test_no_corporate_action_seam():
-    from nlp_module.forecast.trial_forecast import check_prices
+    from ai_core.models.volcast.trial_forecast import check_prices
     assert check_prices(load_prices())["n_big_moves"] == 0

@@ -1,4 +1,4 @@
-"""python -m nlp_module.cli <command> ... (see --help)"""
+"""python -m ai_core.news.cli <command> ... (see --help)"""
 import argparse
 import json
 from datetime import date, datetime, timedelta, timezone
@@ -28,7 +28,7 @@ def load_model(spec):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="nlp_module")
+    ap = argparse.ArgumentParser(prog="ai_core.news")
     ap.add_argument("--db", default=str(storage.DB_PATH))
     ap.add_argument("-v", "--verbose", action="count", default=0,
                     help="-v: what was fetched, matched and scored; -vv: every url, link, passage and probability")

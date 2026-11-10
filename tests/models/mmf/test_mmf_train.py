@@ -1,7 +1,7 @@
 import numpy as np, torch
-from mmf import config as C, train as TR
-from mmf.models import FusionNet
-from mmf.windows import Samples
+from ai_core.models.mmf import config as C, train as TR
+from ai_core.models.mmf.models import FusionNet
+from ai_core.models.mmf.windows import Samples
 
 def toy(n, seed, signal=True):
     r = np.random.default_rng(seed)

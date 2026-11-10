@@ -13,13 +13,13 @@ import shap
 import torch
 from lime.lime_tabular import LimeTabularExplainer
 
-from . import config as C   # first: puts `src` on sys.path
+from . import config as C
 from . import baselines as B, compare as CP, evaluate as E, experiment as EX, recommend as R, train as TR
 from .frame import GROUPS
 from .windows import BINARY
-from src import config as PC
-from src.data import build_panel
-from src.splits import folds_from_config
+from ai_core.prices import config as PC
+from ai_core.prices.data import build_panel
+from ai_core.prices.splits import folds_from_config
 
 BRANCHES = ("price", "fund", "text")
 ATTENTION = "fusion_attention"

@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from src import config as C
-from src.data import load_ohlcv
+from ai_core.prices import config as C
+from ai_core.prices.data import load_ohlcv
 
 PRICES = ["open", "high", "low", "close"]
 COLUMNS = ["checked_at", "symbol", "session", "field", "stored", "tcbs", "note"]

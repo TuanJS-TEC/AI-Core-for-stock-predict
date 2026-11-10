@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src import config as C
-from src.data import Panel, build_panel
+from ai_core.prices import config as C
+from ai_core.prices.data import Panel, build_panel
 
 TICKERS = ["AAA", "BBB", "CCC"]
 DAYS = pd.bdate_range("2024-01-02", periods=80)

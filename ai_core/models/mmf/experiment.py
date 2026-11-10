@@ -12,13 +12,13 @@ import numpy as np
 import pandas as pd
 import torch
 
-from . import config as C   # first: puts `src` on sys.path
+from . import config as C
 from . import baselines as B, evaluate as E, train as TR
 from .frame import GROUPS, build_frame
 from .models import FusionNet
 from .windows import Scalers, make_samples
-from src.data import build_panel
-from src.splits import Fold, folds_from_config, split_samples
+from ai_core.prices.data import build_panel
+from ai_core.prices.splits import Fold, folds_from_config, split_samples
 
 OUT_BLOCKS = ("calib", "eval")
 PRIOR_COLS = ["prior_down", "prior_flat", "prior_up"]

@@ -1,8 +1,8 @@
 import numpy as np, pandas as pd, pytest
-from src import config as PC
-from src.data import build_panel, load_raw
-from mmf import config as C, frame as FR, windows as W
-from mmf.text import TEXT_FEATS
+from ai_core.prices import config as PC
+from ai_core.prices.data import build_panel, load_raw
+from ai_core.models.mmf import config as C, frame as FR, windows as W
+from ai_core.models.mmf.text import TEXT_FEATS
 
 def no_text(version, symbols, sessions):
     idx = pd.MultiIndex.from_product([symbols, sessions], names=["symbol", "as_of_session"])

@@ -3,9 +3,9 @@ import tempfile
 
 import pytest
 
-from nlp_module import annotate, storage
-from nlp_module.connectors.base import ParsedDoc
-from nlp_module.evaluate import challenge_report
+from ai_core.news import annotate, storage
+from ai_core.news.connectors.base import ParsedDoc
+from ai_core.news.evaluate import challenge_report
 
 MV = "baseline-tfidf-lr-v1"
 
@@ -68,7 +68,7 @@ def test_challenge_report_f1_neg_and_ci():
 
 
 def test_cli_smoke_sample_export_report(tmp_path, capsys):
-    from nlp_module import cli
+    from ai_core.news import cli
     db = str(tmp_path / "t.db")
     c = storage.connect(db)
     _result(c, "neg", "Vinhomes lỗ nặng quý này.", (0.05, 0.05, 0.9))

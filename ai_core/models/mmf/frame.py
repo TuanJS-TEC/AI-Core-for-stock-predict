@@ -4,8 +4,8 @@ import pandas as pd
 
 from . import config as C
 from . import fundamentals, text
-from src.dataset import build_dataset
-from src.price_features import FEATURES
+from ai_core.prices.dataset import build_dataset
+from ai_core.prices.price_features import FEATURES
 
 GROUPS = {"price": FEATURES, "fund": fundamentals.FUND_FEATS, "text": text.TEXT_FEATS}
 KEY = ["symbol", "as_of_session"]

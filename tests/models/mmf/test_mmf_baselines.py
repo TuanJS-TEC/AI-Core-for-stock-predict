@@ -1,8 +1,8 @@
 import numpy as np, pandas as pd, pytest
 from sklearn.ensemble import HistGradientBoostingClassifier
-from mmf import baselines as B
-from mmf import config as C
-from mmf.frame import GROUPS
+from ai_core.models.mmf import baselines as B
+from ai_core.models.mmf import config as C
+from ai_core.models.mmf.frame import GROUPS
 
 
 def toy():

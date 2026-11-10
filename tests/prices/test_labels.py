@@ -3,9 +3,9 @@ import math
 import numpy as np
 import pandas as pd
 
-from src import config as C
-from src.data import assign_labels
-from src.labels import make_labels
+from ai_core.prices import config as C
+from ai_core.prices.data import assign_labels
+from ai_core.prices.labels import make_labels
 
 COLS = ["target_session", "label_end_date", "realized_return", "theta_used", "label", "status", "label_version"]
 

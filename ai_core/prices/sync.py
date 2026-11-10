@@ -22,9 +22,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 import pandas as pd
 
-from src import config as C
-from src.snapshot import build_manifest, write_manifest
-from src.validation import check_ohlcv
+from ai_core.prices import config as C
+from ai_core.prices.snapshot import build_manifest, write_manifest
+from ai_core.prices.validation import check_ohlcv
 
 # Thiết lập logging
 logging.basicConfig(

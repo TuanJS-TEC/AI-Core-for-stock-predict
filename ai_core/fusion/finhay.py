@@ -6,7 +6,7 @@ netflows.parquet     date, symbol, investor (foreign|proprietary), buy/sell/net 
 interbank_vn.parquet date + SBV interbank rates (%) and volumes (bn VND) by tenor, full history on first run.
 
 Key: env FINHAY_API_KEY, else the file AI_Core/.finhay_key (chmod 600, never commit it).
-Use: python -m ai_core.finhay
+Use: python -m ai_core.fusion.finhay
 """
 import json
 import logging
@@ -62,7 +62,7 @@ def netflow_rows(symbol, investor, data):
         return d
     assert data["resolution"] == "day", data["resolution"]   # 6m/1y are monthly sums, not sessions
     d = d.rename(columns={"period": "date"}).drop(columns="sessions")
-    d["date"] = pd.to_datetime(d["date"])                     # tz-naive midnight, the ai_core.prices key
+    d["date"] = pd.to_datetime(d["date"])                     # tz-naive midnight, the ai_core.fusion.prices key
     return d.assign(symbol=symbol, investor=investor)
 
 

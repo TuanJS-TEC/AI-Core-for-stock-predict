@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import pandas as pd
-from nlp_module.contract import ArticleCompanyResult
-from mmf import text as T
+from ai_core.news.contract import ArticleCompanyResult
+from ai_core.models.mmf import text as T
 
 V = "v-test"
 def art(rid, sym, pub, pos=0.9, neg=0.1, uncertain=False):

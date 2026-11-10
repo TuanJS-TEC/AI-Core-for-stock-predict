@@ -2,9 +2,9 @@
 import numpy as np
 import pandas as pd
 
-from . import config as C   # first: puts `src` on sys.path
-from src import config as PC
-from src.stats import block_bootstrap_dates
+from . import config as C
+from ai_core.prices import config as PC
+from ai_core.prices.stats import block_bootstrap_dates
 
 RULES = ("Ưu tiên mua", "Tránh", "Không đủ tin cậy")
 

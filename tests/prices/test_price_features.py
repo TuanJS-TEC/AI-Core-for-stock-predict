@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from src import price_features as F
+from ai_core.prices import price_features as F
 
 N = 250
 T = 150  # hàng "hiện tại" cho các test nhân quả

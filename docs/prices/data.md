@@ -12,13 +12,13 @@ src/
   config.py             đường dẫn, mã, đồng bộ, nhãn, fold, lịch
   data.py               đọc parquet -> Panel (trục ngày chung, OHLCV, lịch phiên, khoảng trống, dataset_id)
   validation.py         check_ohlcv, lịch phiên, ngày thường không giải thích được
-  snapshot.py           content_hash, manifest, dataset_id, snapshot bất biến (python -m src.snapshot freeze)
+  snapshot.py           content_hash, manifest, dataset_id, snapshot bất biến (python -m ai_core.prices.snapshot freeze)
   price_features.py     25 đặc trưng nhân quả giá/khối lượng/thị trường trên lịch phiên (phiên thiếu = NaN, không điền)
   labels.py             nhãn 3 lớp thích ứng theo biến động θ = K·σ60·√h, trạng thái ok/not_matured/missing_session/bad_sigma
   splits.py             fold train/tune/calib/eval theo ngày, purge theo label_end_date; mốc đóng băng trong config.DATE_FOLDS
   dataset.py            build_dataset(panel, h) và inference_features(panel): train và suy luận dùng chung một đường đặc trưng
-  sessions.py           ngày nghỉ, phiên thứ n sau một ngày, phiên thiếu lúc now (ai_core.live dùng)
-  stats.py              block bootstrap theo ngày (ai_core.direction dùng)
+  sessions.py           ngày nghỉ, phiên thứ n sau một ngày, phiên thiếu lúc now (ai_core.fusion.live dùng)
+  stats.py              block bootstrap theo ngày (ai_core.fusion.direction dùng)
 tests/                  test của lớp dữ liệu
 ```
 
@@ -27,15 +27,15 @@ tests/                  test của lớp dữ liệu
 - Nguồn `SYNC_SOURCE = "kbs"`. Mỗi lần chạy tải chồng `SYNC_OVERLAP_SESSIONS = 20` phiên gần nhất để so với dữ liệu đã lưu.
 - `clean_types` bỏ hàng vi phạm (`nonpositive_price`, `ohlc_order`, `volume_invalid`). Phiên đã lưu lệch OHLC quá `SYNC_BASIS_TOL` được coi là đổi chuẩn điều chỉnh; refetch đầy đủ bị từ chối nếu mất hàng vì kiểm tra.
 - `stock/manifest.json` chứa số dòng, phiên cuối, băm nội dung từng mã và `dataset_id`. `build_panel` chỉ nhận `dataset_id` khi manifest khớp dữ liệu vừa đọc. `adjustment_policy` hiện là "unknown".
-- Đóng băng dữ liệu đã dùng: `python -m src.snapshot freeze`.
+- Đóng băng dữ liệu đã dùng: `python -m ai_core.prices.snapshot freeze`.
 
 ## Dùng để dựng mô hình mới
 
 ```python
-from src import config as C
-from src.data import build_panel
-from src.dataset import build_dataset
-from src.splits import folds_from_config, split_samples
+from ai_core.prices import config as C
+from ai_core.prices.data import build_panel
+from ai_core.prices.dataset import build_dataset
+from ai_core.prices.splits import folds_from_config, split_samples
 
 panel = build_panel(C.TICKERS)
 ds = build_dataset(panel, h=5)

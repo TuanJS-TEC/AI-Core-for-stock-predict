@@ -1,5 +1,5 @@
 import numpy as np, pytest
-from mmf import evaluate as E
+from ai_core.models.mmf import evaluate as E
 
 P = np.array([[.8, .1, .1], [.1, .8, .1], [.1, .1, .8]])
 Y = np.array([0, 1, 2])

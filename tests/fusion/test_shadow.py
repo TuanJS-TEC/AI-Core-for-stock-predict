@@ -3,10 +3,10 @@ import json
 import numpy as np
 import pandas as pd
 
-from ai_core import config as C
-from ai_core import live, shadow
-from nlp_module import storage
-from nlp_module.forecast import volcast
+from ai_core.fusion import config as C
+from ai_core.fusion import live, shadow
+from ai_core.news import storage
+from ai_core.models.volcast import volcast
 
 DATES = pd.bdate_range("2026-10-01", periods=10)            # d0..d9
 

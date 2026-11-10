@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from src import validation as V
+from ai_core.prices import validation as V
 
 NO_HOLIDAYS = np.array([], "datetime64[D]")
 

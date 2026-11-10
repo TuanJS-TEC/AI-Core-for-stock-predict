@@ -2,8 +2,8 @@ import json
 from types import SimpleNamespace
 
 import numpy as np, pandas as pd, pytest
-from mmf import compare as CP, config as C, evaluate as E, experiment as X, frame as FR, holdout as H
-from mmf.windows import BINARY
+from ai_core.models.mmf import compare as CP, config as C, evaluate as E, experiment as X, frame as FR, holdout as H
+from ai_core.models.mmf.windows import BINARY
 
 SYMS = ["AAA", "BBB", "CCC"]
 LOCK = {"5": {"baseline": "prior_fixed", "unimodal": "dl_price", "fusion": "fusion_attention", "price_kind": "gru", "dataset_id": "devdataset"}}

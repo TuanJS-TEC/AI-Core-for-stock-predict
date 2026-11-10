@@ -7,20 +7,20 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import config as C   # first: puts `src` on sys.path
+from . import config as C
 from . import compare as CP, explain as EXP, experiment as X, recommend as R
-from src import config as PC
-from src.data import build_panel
-from src.splits import Fold
+from ai_core.prices import config as PC
+from ai_core.prices.data import build_panel
+from ai_core.prices.splits import Fold
 
 LOCK_FILE = C.REPORTS / "mmf_lock.json"
 EARLY_VERDICT = "Chưa đủ phiên để kết luận (chạy sớm)"
 NEWS_MIN_RATIO = 0.25      # eval share of rows with news, against calib, below which the news pipeline is suspect
 STEP7 = (f"Step 7, the owner decides. h2 and h5 mature at different times: run each h once it has its own {C.HOLDOUT_MIN} matured sessions, "
-         "e.g. `.venv_mmf/bin/python -m mmf.holdout --h 2` first and `--h 5` a few sessions later. "
+         "e.g. `.venv_mmf/bin/python -m ai_core.models.mmf.holdout --h 2` first and `--h 5` a few sessions later. "
          "Eval predictions with y_true are written under C.DATA/holdout before the guard files; no other tool may score them. "
          "If writing the report fails after the guard exists, never delete the guard: in Python, with a panel of the same dataset "
-         "(dataset_id in the guard), call `mmf.holdout.write_report(h, panel)`, which scores the saved predictions of the existing run dir.")
+         "(dataset_id in the guard), call `ai_core.models.mmf.holdout.write_report(h, panel)`, which scores the saved predictions of the existing run dir.")
 CMP_COLS = ["so_sanh", "a", "b", "mean", "lo", "hi", "fold_wins", "n_folds", "n", "n_days", "verdict"]
 
 

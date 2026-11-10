@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 
 from . import config as C
-from nlp_module import pipeline
-from nlp_module.contract import build_snapshot
-from nlp_module.forecast.trial_forecast import CLOSE_UTC
+from ai_core.news import pipeline
+from ai_core.news.contract import build_snapshot
+from ai_core.models.volcast.trial_forecast import CLOSE_UTC
 
 TEXT_FEATS = ["has_news", "news_count_24h", "news_count_72h", "unique_source_count", "hours_since_last_news",
               "difficult_ratio", "direct_news_ratio", "risk_flag_72h", "sentiment_mean", "sentiment_std",
@@ -59,10 +59,10 @@ def text_features(version, symbols, sessions):
 
 
 def score_missing(version, model_path):
-    """Score the articles this model has not seen yet (the only write to nlp.db). Run from NLP_Module/."""
-    from nlp_module import storage
-    from nlp_module.entities import Linker, load_aliases
-    from nlp_module.sentiment.phobert import PhoBert
+    """Score the articles this model has not seen yet (the only write to nlp.db).."""
+    from ai_core.news import storage
+    from ai_core.news.entities import Linker, load_aliases
+    from ai_core.news.sentiment.phobert import PhoBert
     model, linker = PhoBert(str(model_path), version), Linker(load_aliases())
     return pipeline.process(storage.connect(), model, linker, abstain_entropy=None)
 

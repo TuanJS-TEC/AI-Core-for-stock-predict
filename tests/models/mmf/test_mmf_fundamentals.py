@@ -1,5 +1,5 @@
 import numpy as np, pandas as pd, pytest
-from mmf import fundamentals as F
+from ai_core.models.mmf import fundamentals as F
 
 def row(df, s, y): return df[(df.symbol == s) & (df.year == y)].iloc[0]
 

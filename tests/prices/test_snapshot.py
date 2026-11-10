@@ -6,9 +6,9 @@ import pandas as pd
 import pytest
 
 import sync_stock_parquet as sync
-from src import config as C
-from src import snapshot as S
-from src.data import build_panel, load_raw
+from ai_core.prices import config as C
+from ai_core.prices import snapshot as S
+from ai_core.prices.data import build_panel, load_raw
 
 NO_HOLIDAYS = np.array([], "datetime64[D]")
 SYMS = ["AAA", "BBB"]

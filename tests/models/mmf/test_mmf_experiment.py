@@ -2,9 +2,9 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np, pandas as pd, pytest, torch
-from mmf import baselines as B, config as C, evaluate as E, experiment as X, frame as FR, train as TR
-from mmf.windows import BINARY
-from src.splits import Fold
+from ai_core.models.mmf import baselines as B, config as C, evaluate as E, experiment as X, frame as FR, train as TR
+from ai_core.models.mmf.windows import BINARY
+from ai_core.prices.splits import Fold
 
 SYMS = ["AAA", "BBB", "CCC"]
 DAYS = pd.bdate_range("2023-01-02", periods=400)

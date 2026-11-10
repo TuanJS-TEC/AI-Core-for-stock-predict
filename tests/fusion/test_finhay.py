@@ -1,6 +1,6 @@
 import pandas as pd
 
-from ai_core.finhay import netflow_rows, upsert
+from ai_core.fusion.finhay import netflow_rows, upsert
 
 
 def test_netflow_rows_and_upsert(tmp_path):

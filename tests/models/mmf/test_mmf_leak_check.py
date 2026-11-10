@@ -1,4 +1,4 @@
-from mmf import experiment as X, leak_check as L
+from ai_core.models.mmf import experiment as X, leak_check as L
 from test_mmf_experiment import FOLD, SYMS, fake_frame
 
 

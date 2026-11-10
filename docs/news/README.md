@@ -6,7 +6,7 @@ Usage rights of sources: `docs/source_terms.md` (not cleared for redistribution;
 
 ```
 .venv/bin/python -m pytest -q tests                                # tests
-CLI="python -m nlp_module.cli"
+CLI="python -m ai_core.news.cli"
 $CLI survey cafef 2026-07-01 2026-10-20 --out data/coverage_cafef.csv   # sitemap-only coverage
 $CLI collect cafef 2026-10-01 2026-10-20 --symbols VCB FPT --limit 100  # polite fetch (1 req/s, robots.txt)
 $CLI process --model lexicon                                       # link + passage + sentiment (placeholder model)
@@ -23,18 +23,18 @@ $CLI evidence VCB --model baseline:data/models/baseline.joblib      # per-articl
 $CLI -v quotes --symbols VCB FPT   # SSI iBoard price next to live sentiment; stores a row in market_quote
 scripts/live_update.sh             # collect today's news -> baseline + PhoBERT -> SSI quotes (Mon-Fri 9:00-15:15)
 # cron, every 15 min:  */15 * * * * "<repo>/scripts/live_update.sh" >> "<repo>/data/live.log" 2>&1
-python -m nlp_module.forecast.walk_forward                                 # 3-fold walk-forward: per-fold PhoBERT + forecaster (needs data/prices.csv)
-python -m nlp_module.forecast.fundamentals                                 # LNST % change parsed from the HOSE profit explanations
+python -m ai_core.models.volcast.walk_forward                                 # 3-fold walk-forward: per-fold PhoBERT + forecaster (needs data/prices.csv)
+python -m ai_core.models.volcast.fundamentals                                 # LNST % change parsed from the HOSE profit explanations
 python -c "import pandas as pd, vnfinancialdata as vnf; pd.concat([vnf.load(e, s, start_year=2019) for e in ('HSX','HNX') for s in ('balance_sheet','cash_flow','income_statement')], ignore_index=True).to_parquet('data/bctc.parquet', index=False)"   # all BCTC 2019+ (2020 feeds 2021 growth; long format)
-python -m nlp_module.forecast.fundamentals --check                         # parsed full-year % vs audited BCTC (vnfinancialdata)
-python -c "from nlp_module.forecast.fundamentals import annual; print(annual(['VCB','FPT']))"   # yearly BCTC (vnfinancialdata, HF, public)
-python -m nlp_module.forecast.trial_forecast --fund ; python -m nlp_module.forecast.walk_forward --skip-nlp --fund   # + earnings features
-python -m nlp_module.forecast.volcast train --test-end 2026-10-30 ; python -m nlp_module.forecast.volcast predict   # T+2/T+5 volatility forecast (confidence-gated) -> tab "Dự báo biến động"
+python -m ai_core.models.volcast.fundamentals --check                         # parsed full-year % vs audited BCTC (vnfinancialdata)
+python -c "from ai_core.models.volcast.fundamentals import annual; print(annual(['VCB','FPT']))"   # yearly BCTC (vnfinancialdata, HF, public)
+python -m ai_core.models.volcast.trial_forecast --fund ; python -m ai_core.models.volcast.walk_forward --skip-nlp --fund   # + earnings features
+python -m ai_core.models.volcast.volcast train --test-end 2026-10-30 ; python -m ai_core.models.volcast.volcast predict   # T+2/T+5 volatility forecast (confidence-gated) -> tab "Dự báo biến động"
 # --test-end 2026-10-30 keeps fold C frozen for the pre-registered comparisons (docs/model_report.md); without it fold C grows with new data
 ```
 
 Model contract: any object with `.version` and `.predict(texts) -> [(p_pos, p_neu, p_neg)]`; swapping models changes
-only `nlp_model_version`. Trial forecaster: `nlp_module/forecast/trial_forecast.py` (needs an OHLCV CSV: date,symbol,close).
+only `nlp_model_version`. Trial forecaster: `ai_core.news/forecast/trial_forecast.py` (needs an OHLCV CSV: date,symbol,close).
 Word segmentation for PhoBERT uses the VnCoreNLP jar in `data/vncorenlp` (JRE only).
 HOSE filings (`connectors/hose.py`): scanned PDFs are OCR'd with tesseract (`pdftoppm` + `tesseract`, Vietnamese
 model in `data/tessdata/vie.traineddata`); only the explanation narrative is kept and scored for the title ticker.

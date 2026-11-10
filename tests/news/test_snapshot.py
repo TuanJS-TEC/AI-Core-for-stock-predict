@@ -1,7 +1,7 @@
 import unittest
 from datetime import timedelta
-from nlp_module.contract import ArticleCompanyResult, build_snapshot, utc
-from nlp_module.synthetic import synthetic_results
+from ai_core.news.contract import ArticleCompanyResult, build_snapshot, utc
+from ai_core.news.synthetic import synthetic_results
 
 R = synthetic_results()
 CUTOFF = utc(2026, 10, 20, 9, 0)  # 31h after T0: r5 (T0+50h) must be invisible

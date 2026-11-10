@@ -1,8 +1,8 @@
 """Constants for the multimodal trend forecast (price + financials + news sentiment, T+2 and T+5)."""
-from ai_core import config as AC            # puts Pipeline_V1.2 and NLP_Module on sys.path
-import src.config
+from ai_core.fusion import config as AC
+import ai_core.prices.config
 
-TICKERS = src.config.TICKERS; HORIZONS = (2, 5); START = "2022-01-01"
+TICKERS = ai_core.prices.config.TICKERS; HORIZONS = (2, 5); START = "2022-01-01"
 BANKS = ("ACB", "MBB", "STB", "TCB", "VCB", "VPB")
 LP = 60; LT = 10                     # window length: price branch, text branch
 D = 32; EMB = 4; DROPOUT = 0.2; PRICE_KINDS = ("lstm", "gru", "transformer")

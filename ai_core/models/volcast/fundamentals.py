@@ -5,7 +5,7 @@ is itself an earnings event; the stated % change is its size and sign. Timestamp
 times, so there is no publication-lag guesswork. Coverage is whatever the HOSE API serves (from ~2025-04) and only
 quarters with a >= 10% swing: no filing means "small change OR not collected", which is why absence is has_fund=0,
 never np_yoy=0 read as a measured flat quarter.
-python -m nlp_module.forecast.fundamentals     # prints the parsed filings
+python -m ai_core.models.volcast.fundamentals     # prints the parsed filings
 """
 import re
 from datetime import datetime
@@ -13,7 +13,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-from ..contract import BACKTEST_DELAY
+from ai_core.news.contract import BACKTEST_DELAY
 from .trial_forecast import CLOSE_UTC
 
 FUND = ["has_fund", "np_yoy", "fund_age"]
@@ -40,7 +40,7 @@ def profit_change(text):
     """Signed after-tax-profit change vs the same period last year as a fraction (-0.121 = down 12.1%): the first
     consolidated LNST mention that states one, else the first of any scope; None when the filing gives only amounts.
     The direction word is the last tăng/giảm before the %, since filings write 'giảm 588.681 triệu đồng, tương ứng
-    giảm 12,1%'. Checked against audited FY2025 statements by `python -m nlp_module.forecast.fundamentals --check`."""
+    giảm 12,1%'. Checked against audited FY2025 statements by `python -m ai_core.models.volcast.fundamentals --check`."""
     first = None
     for a in _LNST.finditer(text):
         m = _PCT.search(text, a.end(), a.end() + 300)
@@ -152,7 +152,7 @@ def check_annual(c):
 
 if __name__ == "__main__":
     import sys
-    from .. import storage
+    from ai_core.news import storage
     c = storage.connect()
     if "--check" in sys.argv:
         print(check_annual(c).round(4).to_string(index=False))

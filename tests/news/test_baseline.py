@@ -1,5 +1,5 @@
 import joblib, pytest
-from nlp_module.sentiment.baseline import Baseline, class_weights, fit_prior, train
+from ai_core.news.sentiment.baseline import Baseline, class_weights, fit_prior, train
 
 X = ["lãi tăng mạnh", "lợi nhuận tăng", "họp cổ đông", "công bố thông tin", "lỗ nặng", "thua lỗ kéo dài"] * 3
 Y = ["positive", "positive", "neutral", "neutral", "negative", "negative"] * 3
@@ -51,7 +51,7 @@ def test_fit_prior_recovers_underweighted_positive():
 def test_fit_prior_keeps_identity_when_already_right():
     assert fit_prior([(0.8, 0.1, 0.1), (0.1, 0.8, 0.1), (0.1, 0.1, 0.8)], ["positive", "neutral", "negative"]) == (1.0, 1.0, 1.0)
 
-from nlp_module.evaluate import bootstrap_macro_f1, metrics
+from ai_core.news.evaluate import bootstrap_macro_f1, metrics
 
 def test_bootstrap_ci_brackets_point_and_is_deterministic():
     labels = ["positive", "neutral", "negative", "neutral"] * 10

@@ -5,9 +5,9 @@ import numpy as np, pandas as pd, pytest, torch
 from scipy.special import softmax
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from mmf import config as C, experiment as EX, explain as X, recommend as R
-from mmf.models import FusionNet
-from mmf.windows import Samples
+from ai_core.models.mmf import config as C, experiment as EX, explain as X, recommend as R
+from ai_core.models.mmf.models import FusionNet
+from ai_core.models.mmf.windows import Samples
 from test_mmf_experiment import FOLD, SYMS, fake_frame
 
 

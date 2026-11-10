@@ -8,6 +8,8 @@ import math
 import os
 from pathlib import Path
 
+from ai_core import paths
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -16,7 +18,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from .. import storage
+from ai_core.news import storage
 from . import fundamentals
 from . import trial_forecast as tf
 from .trial_forecast import CLOSE_UTC
@@ -30,7 +32,7 @@ BUNDLE = "data/models/volcast.joblib"
 REPORT = "data/reports/volcast_report.json"
 HORIZONS = (2, 5)
 COLS = ["date", "symbol", "close", "high", "low", "volume"]
-STOCK_DIR = Path(__file__).resolve().parents[3] / "Pipeline_V1.2" / "stock"   # the one canonical price source (the sync keeps it current)
+STOCK_DIR = paths.PRICES_HOME / "stock"   # the one canonical price source (the sync keeps it current)
 SYMBOLS = "ACB FPT GAS HPG MBB MSN MWG SSI STB TCB VCB VIC VNM VPB VRE".split()   # live set; new files in STOCK_DIR do not change it
 RET_BAND = 0.072   # exchange daily limit is 7% (+ price rounding); a bigger daily move means a corporate action or a calendar gap
 
@@ -298,7 +300,7 @@ def main(argv=None):
             print(f"wrote {BUNDLE}")
         return
     if not os.path.exists(BUNDLE):
-        raise SystemExit(f"{BUNDLE} missing: run `python -m nlp_module.forecast.volcast train` first")
+        raise SystemExit(f"{BUNDLE} missing: run `python -m ai_core.models.volcast.volcast train` first")
     out = predict_latest(df, joblib.load(BUNDLE))
     t = storage.now()
     c.executemany("INSERT OR REPLACE INTO vol_forecast VALUES (?,?,?,?,?,?,?)",

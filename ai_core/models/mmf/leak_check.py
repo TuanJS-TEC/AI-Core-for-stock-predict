@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import config as C   # first: puts `src` on sys.path
+from . import config as C
 from . import evaluate as E, experiment as X, train as TR
-from src.data import build_panel
-from src.splits import folds_from_config
+from ai_core.prices.data import build_panel
+from ai_core.prices.splits import folds_from_config
 
 KIND = "lstm"; SEED = 59    # one encoder and one seed for every fold, not the locked kinds or the 5-seed ensemble
 HEADER = ["h", "fold", "AUC Tăng/Giảm, nhãn thật", "AUC nhãn xáo trộn: trung bình", "độ lệch chuẩn", "min", "max", "log-loss nhãn xáo trộn"]

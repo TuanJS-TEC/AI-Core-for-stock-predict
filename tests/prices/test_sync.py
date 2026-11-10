@@ -2,7 +2,7 @@
 import pandas as pd
 
 import sync_stock_parquet as S
-from src import config as C
+from ai_core.prices import config as C
 
 
 def frame(times, close):

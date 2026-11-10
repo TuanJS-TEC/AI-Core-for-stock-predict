@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nlp_module import storage
-from nlp_module.forecast import fundamentals, volcast
+from ai_core.news import storage
+from ai_core.models.volcast import fundamentals, volcast
 
 NO_BCTC = pd.DataFrame(columns=["symbol", "available_at"] + fundamentals.BCTC[1:]).astype(
     {"symbol": str, "available_at": "datetime64[ns]"} | {k: float for k in fundamentals.BCTC[1:]})

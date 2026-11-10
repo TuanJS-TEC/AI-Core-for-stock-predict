@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 
-from nlp_module.forecast import trial_forecast as tf
-from nlp_module.contract import ArticleCompanyResult
+from ai_core.models.volcast import trial_forecast as tf
+from ai_core.news.contract import ArticleCompanyResult
 
 
 class TrialForecastTest(unittest.TestCase):

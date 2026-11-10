@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src import config as C, sessions as S
-from src.data import build_panel, load_raw
+from ai_core.prices import config as C, sessions as S
+from ai_core.prices.data import build_panel, load_raw
 
 
 @pytest.fixture(scope="module")

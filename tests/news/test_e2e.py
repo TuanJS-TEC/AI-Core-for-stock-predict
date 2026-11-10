@@ -2,10 +2,10 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 
-from nlp_module import pipeline, storage
-from nlp_module.connectors.base import ParsedDoc
-from nlp_module.entities import Linker, load_aliases
-from nlp_module.sentiment import lexicon
+from ai_core.news import pipeline, storage
+from ai_core.news.connectors.base import ParsedDoc
+from ai_core.news.entities import Linker, load_aliases
+from ai_core.news.sentiment import lexicon
 
 
 def doc(url, title, body, pub):

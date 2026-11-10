@@ -3,7 +3,7 @@ import zlib
 
 import numpy as np, pandas as pd, pytest
 from scipy.special import softmax
-from mmf import compare as C, config as MC, evaluate as E
+from ai_core.models.mmf import compare as C, config as MC, evaluate as E
 
 ALL_ARMS = list(MC.ARMS) + list(MC.BASELINES)
 SYMS = ["AAA", "BBB", "CCC"]

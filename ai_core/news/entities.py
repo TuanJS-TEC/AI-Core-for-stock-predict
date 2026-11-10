@@ -4,7 +4,9 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-COMPANIES_CSV = Path(__file__).resolve().parent.parent / "data" / "companies.csv"
+from ai_core import paths
+
+COMPANIES_CSV = paths.NEWS_HOME / "data" / "companies.csv"
 # Symbols that are also ordinary words/places/currency: need "cổ phiếu/mã/CP" right before them.
 LIST_ARTICLE_MIN = 4      # articles linking >= this many companies are treated as market-level
 AMBIGUOUS_SYMBOLS = {"VND", "HCM", "GAS"}

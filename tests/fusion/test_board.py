@@ -4,10 +4,10 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from nlp_module import storage
-from nlp_module.board import FUSION_VERSION, newest_decisions, snapshot_passages
-from nlp_module.contract import build_snapshot
-from nlp_module.pipeline import load_results
+from ai_core.news import storage
+from ai_core.fusion.board import FUSION_VERSION, newest_decisions, snapshot_passages
+from ai_core.news.contract import build_snapshot
+from ai_core.news.pipeline import load_results
 
 CUT = datetime(2026, 10, 29, 8, 0, tzinfo=timezone.utc)
 M = "m1"
@@ -77,7 +77,7 @@ class StaleTest(unittest.TestCase):
                              "call": ["strong", "weak", "strong"], "p_strong": [0.7, 0.3, 0.8]})
 
     def test_row_older_than_board_is_stale(self):
-        from nlp_module.board import mark_stale
+        from ai_core.fusion.board import mark_stale
         out = mark_stale(self.board(), None)            # a failed sync left AAA on yesterday's row
         a, b = out[out["symbol"] == "AAA"], out[out["symbol"] == "BBB"]
         self.assertTrue((a["decision"] == "DATA_INVALID (stale)").all())
@@ -88,13 +88,13 @@ class StaleTest(unittest.TestCase):
 
     def test_newer_prices_make_whole_board_stale(self):
         import pandas as pd
-        from nlp_module.board import mark_stale
+        from ai_core.fusion.board import mark_stale
         out = mark_stale(self.board(), pd.Timestamp("2026-11-02"))   # live did not run after the last sync
         self.assertTrue((out["decision"] == "DATA_INVALID (stale)").all())
 
     def test_current_board_unchanged(self):
         import pandas as pd
-        from nlp_module.board import mark_stale
+        from ai_core.fusion.board import mark_stale
         df = self.board()
         df["base_date"] = "2026-10-30"
         out = mark_stale(df, pd.Timestamp("2026-10-30"))

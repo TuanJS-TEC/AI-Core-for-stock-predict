@@ -1,7 +1,7 @@
 """Live board: one fusion_decision row per (symbol, h) for the symbol's newest session.
 
 Direction was NO-GO (Task 10), so the board only ever says NO_TRADE or DATA_INVALID; p_up/p_down/margin stay NULL.
-Run: `NLP_Module/.venv/bin/python -m ai_core.live` (after the 15:20 price sync).
+Run: `NLP_Module/.venv/bin/python -m ai_core.fusion.live` (after the 15:20 price sync).
 Write rules (primary key = symbol, base_date, h, version):
 - NO_TRADE and SEAM rows use INSERT OR REPLACE: they describe the data of that base_date itself, so a rerun
   may legitimately refresh them.
@@ -18,14 +18,14 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-from . import config as C                                    # first: puts Pipeline_V1.2 and NLP_Module on sys.path
+from . import config as C
 from .prices import load_prices
-from nlp_module import storage                               # noqa: E402
-from nlp_module.contract import build_snapshot               # noqa: E402
-from nlp_module.forecast import volcast                      # noqa: E402
-from nlp_module.forecast.trial_forecast import CLOSE_UTC     # noqa: E402
-from nlp_module.pipeline import load_results                 # noqa: E402
-from src import sessions as P                                # noqa: E402
+from ai_core.news import storage                               # noqa: E402
+from ai_core.news.contract import build_snapshot               # noqa: E402
+from ai_core.models.volcast import volcast                      # noqa: E402
+from ai_core.models.volcast.trial_forecast import CLOSE_UTC     # noqa: E402
+from ai_core.news.pipeline import load_results                 # noqa: E402
+from ai_core.prices import sessions as P                                # noqa: E402
 
 VERSION = "decision-v0-nogo"
 NLP_MODEL = "baseline-tfidf-lr-v1"
@@ -35,7 +35,7 @@ VN = "Asia/Ho_Chi_Minh"                                      # SESSION_DATA_READ
 
 def holidays(hist: pd.DataFrame) -> np.ndarray:
     """datetime64[D]: weekdays with no session in `hist` (any symbol), plus the declared C.MARKET_HOLIDAYS.
-    Same rule as src.sessions.market_holidays, which only needs `.dates` from its panel."""
+    Same rule as ai_core.prices.sessions.market_holidays, which only needs `.dates` from its panel."""
     return P.market_holidays(SimpleNamespace(dates=pd.DatetimeIndex(sorted(hist["date"].unique()))))
 
 

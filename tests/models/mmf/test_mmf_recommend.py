@@ -1,6 +1,6 @@
 import numpy as np, pandas as pd, pytest
 
-from mmf import recommend as R
+from ai_core.models.mmf import recommend as R
 
 
 def _toy_prices():

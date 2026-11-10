@@ -2,12 +2,12 @@ import tempfile
 import unittest
 from datetime import date
 
-from nlp_module import dedup, storage
-from nlp_module.connectors import cafef, vietstock
-from nlp_module.connectors.base import ParsedDoc, sitemap_entries, to_utc_iso
-from nlp_module.entities import Link, Linker, Mention, load_aliases
-from nlp_module.passages import select_passage
-from nlp_module.text import fold, normalize, split_sentences
+from ai_core.news import dedup, storage
+from ai_core.news.connectors import cafef, vietstock
+from ai_core.news.connectors.base import ParsedDoc, sitemap_entries, to_utc_iso
+from ai_core.news.entities import Link, Linker, Mention, load_aliases
+from ai_core.news.passages import select_passage
+from ai_core.news.text import fold, normalize, split_sentences
 
 L = Linker(load_aliases())
 
@@ -151,7 +151,7 @@ class ListArticleTest(unittest.TestCase):
 class SsiQuotesTest(unittest.TestCase):
     def test_board_parsing_and_no_trade_fallback(self):
         import json
-        from nlp_module.connectors import ssi
+        from ai_core.news.connectors import ssi
 
         board = {"code": "SUCCESS", "data": [
             {"stockSymbol": "VIC", "tradingDate": "20261026", "session": "C", "refPrice": 236500,
@@ -177,7 +177,7 @@ class SsiQuotesTest(unittest.TestCase):
 
     def test_empty_board_fails_loudly(self):
         import json
-        from nlp_module.connectors import ssi
+        from ai_core.news.connectors import ssi
 
         class FakeFetcher:
             def get(self, url):
@@ -196,7 +196,7 @@ class HoseFilingTest(unittest.TestCase):
              "do doanh thu thuần bán hàng tăng mạnh.\nTrân trọng.\nNơi nhận: như trên"]
 
     def test_narrative_drops_cover_table_and_signoff(self):
-        from nlp_module.connectors.hose import narrative
+        from ai_core.news.connectors.hose import narrative
         t = narrative(self.PAGES)
         self.assertTrue(t.startswith("Lợi nhuận sau thuế quý 3"), t)
         self.assertIn("doanh thu thuần bán hàng tăng mạnh.", t)   # OCR line break re-joined
@@ -204,7 +204,7 @@ class HoseFilingTest(unittest.TestCase):
             self.assertNotIn(junk, t)
 
     def test_narrative_keeps_lowercase_cbtt_page_and_drops_english(self):
-        from nlp_module.connectors.hose import narrative
+        from ai_core.news.connectors.hose import narrative
         t = narrative(["V/v giải trình. Về việc công bố thông tin, Ngân hàng xin giải trình như sau:\n"
                        "Lợi nhuận sau thuế riêng của Ngân hàng tăng 45% so với cùng kỳ năm trước.\n"
                        "Net profit after tax of the Bank increased by 45% compared to last year.\n"
@@ -212,7 +212,7 @@ class HoseFilingTest(unittest.TestCase):
         self.assertEqual(t, "Lợi nhuận sau thuế riêng của Ngân hàng tăng 45% so với cùng kỳ năm trước.")
 
     def test_narrative_two_page_cover_without_nhu_sau(self):
-        from nlp_module.connectors.hose import narrative
+        from ai_core.news.connectors.hose import narrative
         t = narrative(["CÔNG BỐ THÔNG TIN ĐỊNH KỲ\nKính gửi: Ủy ban Chứng khoán Nhà nước",
                        "Chúng tôi xin cam kết thông tin trên là đúng sự thật.\nTrân trọng./.",
                        "GIẢI TRÌNH MỘT SỐ CHỈ TIÊU\nLợi nhuận sau thuế quý 2 giảm 30% do sản lượng điện giảm.\n"
@@ -220,9 +220,9 @@ class HoseFilingTest(unittest.TestCase):
         self.assertEqual(t, "Lợi nhuận sau thuế quý 2 giảm 30% do sản lượng điện giảm.")
 
     def test_process_scores_filing_for_title_ticker(self):
-        from nlp_module.connectors.hose import narrative
-        from nlp_module.pipeline import process
-        from nlp_module.sentiment import lexicon
+        from ai_core.news.connectors.hose import narrative
+        from ai_core.news.pipeline import process
+        from ai_core.news.sentiment import lexicon
         c = storage.connect(":memory:")
         storage.ingest(c, ParsedDoc("hose", "https://api.hsx.vn/n/api/v1/1/news/1", "financial_narrative",
                                     "FPT: Giải trình biến động LNST quý 3/2026", narrative(self.PAGES),
@@ -239,7 +239,7 @@ class LinkChangesTest(unittest.TestCase):
 
     def test_link_changes_counts_dropped_sample(self):
         from collections import Counter
-        from nlp_module.evaluate import link_changes
+        from ai_core.news.evaluate import link_changes
         c = storage.connect(":memory:")
         v, _ = storage.ingest(c, ParsedDoc("t", "https://a.vn/x", "news", "BIDV thu giữ tài sản của Vinhomes",
                                            "Ngân hàng xử lý tài sản bảo đảm.", "2026-01-01T00:00:00Z", None, b"<html/>"),
@@ -250,7 +250,7 @@ class LinkChangesTest(unittest.TestCase):
                          Counter({("skipped", "dropped"): 1}))
 
     def test_drop_stale_links_deletes_only_unlinked_results(self):
-        from nlp_module.evaluate import drop_stale_links
+        from ai_core.news.evaluate import drop_stale_links
         c = storage.connect(":memory:")
         ids = []
         for u, title, body in (("a", "BIDV thu giữ biệt thự tại Vinhomes Riverside", "Ngân hàng xử lý tài sản."),
@@ -268,7 +268,7 @@ class LinkChangesTest(unittest.TestCase):
 
     def test_link_changes_unlinked_target_is_same(self):
         from collections import Counter
-        from nlp_module.evaluate import link_changes
+        from ai_core.news.evaluate import link_changes
         c = storage.connect(":memory:")
         v, _ = storage.ingest(c, ParsedDoc("t", "https://a.vn/y", "news", "Thị trường đi ngang",
                                            "Không có doanh nghiệp nào được nhắc.", "2026-01-01T00:00:00Z", None, b"<html/>"),

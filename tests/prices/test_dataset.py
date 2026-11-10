@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
 
-from src.data import Panel
-from src.dataset import LABEL_COLS, build_dataset, inference_features
-from src.price_features import FEATURES
+from ai_core.prices.data import Panel
+from ai_core.prices.dataset import LABEL_COLS, build_dataset, inference_features
+from ai_core.prices.price_features import FEATURES
 
 SYMS = ["AAA", "BBB", "CCC"]
 MARKET_DEPENDENT = {"mret1", "mret5", "mvol20", "ex_ret1", "ex_ret5"}

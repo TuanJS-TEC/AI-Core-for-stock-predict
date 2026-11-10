@@ -1,5 +1,5 @@
 import unittest
-from nlp_module.risk import FLAGS, risk_flags
+from ai_core.news.risk import FLAGS, risk_flags
 
 CASES = {
     "guarantee": (["MWG bảo lãnh vô điều kiện cho Bách Hóa Xanh vay 2.000 tỷ", "Công ty bảo lãnh khoản vay của công ty con",

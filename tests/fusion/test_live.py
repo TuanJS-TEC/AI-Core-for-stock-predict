@@ -4,11 +4,11 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
-from ai_core import config as C
-from ai_core import live
-from nlp_module import storage
-from nlp_module.contract import ArticleCompanyResult
-from nlp_module.forecast import volcast
+from ai_core.fusion import config as C
+from ai_core.fusion import live
+from ai_core.news import storage
+from ai_core.news.contract import ArticleCompanyResult
+from ai_core.models.volcast import volcast
 
 VN = "Asia/Ho_Chi_Minh"
 THU_1600 = pd.Timestamp("2026-10-29 16:00", tz=VN)          # a Thursday, after the 15:00 data-ready time
@@ -156,7 +156,7 @@ def test_data_invalid_row_carries_no_signal():
 def test_board_constants_match_live():
     """NLP_Module cannot import ai_core, so the board mirrors live's constants by hand: a drift must fail here."""
     import re
-    from nlp_module import board
+    from ai_core.news import board
     assert board.FUSION_VERSION == live.VERSION
     app = (C.NLP / "app.py").read_text(encoding="utf-8")
     used = re.findall(r'snapshot_passages\(con, symbol, pd\.Timestamp\(cutoff\), "([^"]+)"\)', app)

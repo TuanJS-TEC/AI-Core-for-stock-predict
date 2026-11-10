@@ -1,6 +1,6 @@
 """Walk-forward evaluation: per fold, retrain PhoBERT on labels published before the fold's validation window,
 re-score all articles with it, then pick forecaster settings on validation and report once on test.
-python -m nlp_module.forecast.walk_forward [--prices data/prices.csv]"""
+python -m ai_core.models.volcast.walk_forward [--prices data/prices.csv]"""
 import argparse
 from pathlib import Path
 
@@ -10,11 +10,11 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import StandardScaler
 
-from .. import annotate, storage
+from ai_core.news import annotate, storage
 from . import fundamentals
 from . import trial_forecast as tf
-from ..entities import Linker, load_aliases
-from ..pipeline import load_results, process
+from ai_core.news.entities import Linker, load_aliases
+from ai_core.news.pipeline import load_results, process
 
 # (name, train_start, val_start, test_start, test_end); windows are [start, next start)
 FOLDS = [("A", "2022-01-01", "2024-01-01", "2024-07-01", "2025-01-01"),
@@ -27,7 +27,7 @@ RANK_COLS = {"none": [], "counts": tf.COUNTS, "all": tf.COUNTS + tf.SENT}   # cr
 
 def nlp_model(c, name, val_start, test_start, out_root="data/models"):
     """PhoBERT trained on dev labels before val_start, epoch chosen on dev labels in [val_start, test_start)."""
-    from ..sentiment import phobert
+    from ai_core.news.sentiment import phobert
     X, y, rows = annotate.dataset(c, "dev")
     tr = [i for i, r in enumerate(rows) if r["published_at"] < val_start]
     va = [i for i, r in enumerate(rows) if val_start <= r["published_at"] < test_start]

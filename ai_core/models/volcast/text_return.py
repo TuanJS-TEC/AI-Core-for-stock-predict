@@ -1,7 +1,7 @@
 """Direct Text->Return regression: TF-IDF + Ridge maps each direct article to its ticker's forward return relative to
 the day's cross-section, the mean prediction over 24h becomes a daily feature, and a forecaster trained on the
 validation window (where Ridge predictions are out-of-sample) is scored once on test, per walk-forward fold.
-python -m nlp_module.forecast.text_return --target absmove|excess"""
+python -m ai_core.models.volcast.text_return --target absmove|excess"""
 import argparse
 import sqlite3
 import time
@@ -17,7 +17,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from . import trial_forecast as tf
-from ..contract import BACKTEST_DELAY
+from ai_core.news.contract import BACKTEST_DELAY
 from .walk_forward import FOLDS, PRICE, _split
 
 CLOSE = pd.Timedelta(hours=tf.CLOSE_UTC.hour, minutes=tf.CLOSE_UTC.minute)

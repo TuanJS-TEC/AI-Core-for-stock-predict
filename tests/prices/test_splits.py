@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src import splits as S
+from ai_core.prices import splits as S
 
 CAL = pd.bdate_range("2021-01-04", periods=800)
 LAST = str(CAL[780].date())

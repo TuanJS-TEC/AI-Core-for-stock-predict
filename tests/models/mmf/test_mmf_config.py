@@ -1,5 +1,5 @@
-from mmf import config as C
-from src.splits import folds_from_config
+from ai_core.models.mmf import config as C
+from ai_core.prices.splits import folds_from_config
 
 def test_fold_nlp_maps_every_fold_and_labels_precede_train_end():
     assert {f.name for f in folds_from_config()} == set(C.FOLD_NLP) - {"F"}

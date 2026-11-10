@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from . import config as C
-from nlp_module.forecast.fundamentals import annual_wide
+from ai_core.models.volcast.fundamentals import annual_wide
 
 FUND_FEATS = ["ep", "eps_yoy", "roe", "roa", "de", "gross_margin", "rev_yoy", "current_ratio", "has_bctc", "is_bank"]
 RATIOS = ["ep", "eps_yoy", "roe", "roa", "de", "gross_margin", "rev_yoy", "current_ratio"]

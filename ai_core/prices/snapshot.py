@@ -5,7 +5,7 @@
 - dataset_id: sha256 của các dòng `SYM:content_sha256` sắp theo mã; không phụ thuộc fetched_at.
 - freeze: sao parquet + manifest vào stock_dir/snapshots/<dataset_id[:16]> để chạy lại đúng dữ liệu đã dùng.
 
-Dùng: python -m src.snapshot freeze     # in dataset_id của manifest hiện tại
+Dùng: python -m ai_core.prices.snapshot freeze     # in dataset_id của manifest hiện tại
 """
 import hashlib
 import importlib.metadata as md
@@ -108,5 +108,5 @@ def freeze(stock_dir: Path) -> str:
 
 if __name__ == "__main__":
     if sys.argv[1:] != ["freeze"]:
-        sys.exit("dùng: python -m src.snapshot freeze")
+        sys.exit("dùng: python -m ai_core.prices.snapshot freeze")
     print(freeze(C.STOCK_DIR))

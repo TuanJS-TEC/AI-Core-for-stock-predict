@@ -1,7 +1,7 @@
 """Walk-forward splits: NLP's FOLDS (fold C's end frozen at TEST_END) and its purge, so fusion and the text-only study stay comparable."""
 from . import config as C
-from nlp_module.forecast import walk_forward   # after config: it puts NLP_Module on sys.path
-from nlp_module.forecast.walk_forward import _split
+from ai_core.models.volcast import walk_forward
+from ai_core.models.volcast.walk_forward import _split
 
 FOLDS = [(n, a, b, c, C.TEST_END if n == "C" else e) for n, a, b, c, e in walk_forward.FOLDS]
 

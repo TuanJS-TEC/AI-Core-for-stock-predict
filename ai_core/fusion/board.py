@@ -1,10 +1,10 @@
-"""Read-only queries behind the app's decision board (the writer is `python -m ai_core.live`)."""
+"""Read-only queries behind the app's decision board (the writer is `python -m ai_core.fusion.live`)."""
 import pandas as pd
 
-from .contract import WINDOW_H
-from .risk import risk_flags
+from ai_core.news.contract import WINDOW_H
+from ai_core.news.risk import risk_flags
 
-FUSION_VERSION = "decision-v0-nogo"   # mirrors ai_core.live.VERSION (NLP_Module cannot import ai_core)
+from .live import VERSION as FUSION_VERSION
 
 
 def newest_decisions(con, version: str = FUSION_VERSION) -> pd.DataFrame:
@@ -21,7 +21,7 @@ def mark_stale(df: pd.DataFrame, latest_price=None) -> pd.DataFrame:
     """Rows older than the session the board should be on -> decision 'DATA_INVALID (stale)', call/p_strong blanked.
 
     Expected session = max(newest base_date on the board, `latest_price` = newest session in the price files, naive
-    date or None). The board max catches one ticker left on yesterday's row (its sync failed, so ai_core.live wrote
+    date or None). The board max catches one ticker left on yesterday's row (its sync failed, so ai_core.fusion.live wrote
     MISSING_SESSION, which never replaces the old row); the price date catches a live run that has not happened since
     the last sync (then every row is stale)."""
     if df.empty:

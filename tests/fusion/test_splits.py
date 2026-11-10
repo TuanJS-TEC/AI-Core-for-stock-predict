@@ -4,8 +4,8 @@ import sys
 import numpy as np
 import pandas as pd
 
-from ai_core import config as C
-from ai_core.splits import FOLDS, folds
+from ai_core.fusion import config as C
+from ai_core.fusion.splits import FOLDS, folds
 
 
 def test_frozen_fold_c_ends_before_test_end():
@@ -21,8 +21,8 @@ def test_frozen_fold_c_ends_before_test_end():
 
 def test_config_and_finhay_do_not_import_nlp_module():
     """The 15:40 finhay cron is HTTP-only: it must not break on an NLP_Module import error or a checkout without it."""
-    code = ("import sys, ai_core.config, ai_core.finhay; "
-            "bad = sorted(m for m in sys.modules if m.split('.')[0] in ('nlp_module', 'sklearn')); "
+    code = ("import sys, ai_core.fusion.config, ai_core.fusion.finhay; "
+            "bad = sorted(m for m in sys.modules if m.split('.')[0] in ('ai_core.news', 'sklearn')); "
             "assert not bad, bad")
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=C.ROOT)
     assert r.returncode == 0, r.stderr[-2000:]

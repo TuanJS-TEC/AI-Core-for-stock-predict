@@ -47,8 +47,10 @@ def _proba(clf, x):
     return out
 
 
-def predict_baseline(name, blocks, scaled, frame):
-    """Probabilities (n, 3) for blocks 'calib' and 'eval', in the block row order. blocks: usable rows only."""
+def predict_baseline(name, blocks, scaled, frame, price_cols=None):
+    """Probabilities (n, 3) for blocks 'calib' and 'eval', in the block row order. blocks: usable rows only.
+
+    price_cols replaces the columns of the price group (the ctx variant adds the context features)."""
     if name not in C.BASELINES:
         raise ValueError(f"unknown baseline {name!r}")
     outs = ("calib", "eval")
@@ -57,7 +59,7 @@ def predict_baseline(name, blocks, scaled, frame):
     if name == "prior_adaptive":
         return {k: _prior_adaptive(frame, blocks[k]) for k in outs}
     kind, group = name.split("_")
-    cols = [c for g in SUFFIX[group] for c in GROUPS[g]]
+    cols = [c for g in SUFFIX[group] for c in (price_cols if g == "price" and price_cols is not None else GROUPS[g])]
     # ponytail: NaN -> 0 (the train mean after scaling) for the logit; GBM takes NaN natively
     x = lambda k: scaled.loc[blocks[k].index, cols].to_numpy(float)
     xt, yt = x("train"), blocks["train"]["label"].to_numpy(dtype="float")

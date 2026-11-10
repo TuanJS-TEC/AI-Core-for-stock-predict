@@ -24,3 +24,8 @@ EXT_DIR = AC.ROOT / "Pipeline_V1.2/stock_ext"; EXT_UNIVERSE = AC.ROOT / "Pipelin
 INDEX = "VNINDEX"; EXT_MIN_SESSIONS = 500
 GLOBAL_FILE = AC.ROOT / "data/global/global.parquet"; GLOBAL_STALE_DAYS = 7; AUX = DATA / "aux"
 GLOBAL_SERIES = {"spx": "^GSPC", "vix": "^VIX", "brent": "BZ=F", "usdvnd": "VND=X"}
+# v2 variants: (train on external tickers too, add context features); models run per variant, written as name@variant
+VARIANTS = {"base": (False, False), "ext": (True, False), "ext_ctx": (True, True)}
+HURDLE = ("hurdle_logit_price", "hurdle_gbm_price")
+V2_BASELINES = {"base": HURDLE, "ext": ("logit_price", "gbm_price", *HURDLE), "ext_ctx": ("logit_price", "gbm_price", *HURDLE)}
+V2_DL = {"base": (), "ext": ("dl_price",), "ext_ctx": ("dl_price",)}

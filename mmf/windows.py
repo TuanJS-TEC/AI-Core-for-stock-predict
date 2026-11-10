@@ -18,15 +18,15 @@ class Scalers:
     std: pd.Series
 
     @classmethod
-    def fit(cls, train_rows):
-        """Mean and std per column over the rows given (non-finite values skipped)."""
-        x = train_rows[COLS].replace([np.inf, -np.inf], np.nan)
+    def fit(cls, train_rows, cols=None):
+        """Mean and std per column (default COLS) over the rows given (non-finite values skipped)."""
+        x = train_rows[COLS if cols is None else list(cols)].replace([np.inf, -np.inf], np.nan)
         return cls(x.mean(), x.std().replace(0.0, 1.0).fillna(1.0))
 
     def apply(self, frame):
         """Standardise, clip to [-5, 5]; NaN stays NaN so make_samples can drop the window."""
-        out = frame.copy()
-        out[COLS] = ((frame[COLS] - self.mean) / self.std).clip(-CLIP, CLIP)
+        out, cols = frame.copy(), list(self.mean.index)
+        out[cols] = ((frame[cols] - self.mean) / self.std).clip(-CLIP, CLIP)
         return out
 
 
@@ -46,9 +46,11 @@ class Samples:
         return len(self.y)
 
 
-def make_samples(scaled_frame, block_rows, tickers, lp=C.LP, lt=C.LT):
-    """Windows end at the sample session. A window with a missing session or any non-finite value is dropped, never filled."""
-    f = scaled_frame
+def make_samples(scaled_frame, block_rows, tickers, lp=C.LP, lt=C.LT, price_cols=None):
+    """Windows end at the sample session. A window with a missing session or any non-finite value is dropped, never filled.
+
+    price_cols: columns of the price window (default GROUPS["price"]; the ctx variant adds the context features)."""
+    f, price_cols = scaled_frame, GROUPS["price"] if price_cols is None else list(price_cols)
     cal = pd.DatetimeIndex(np.sort(f["as_of_session"].unique()))
     parts = {k: [] for k in ("xp", "xt", "xf", "ticker", "idx")}
     for t, sym in enumerate(tickers):
@@ -60,14 +62,14 @@ def make_samples(scaled_frame, block_rows, tickers, lp=C.LP, lt=C.LT):
         pos = cal.get_indexer(rows["as_of_session"])
         keep = pos >= max(lp, lt) - 1                                  # windows must fit inside the calendar
         rows, pos = rows[keep], pos[keep]
-        xp = mine[GROUPS["price"]].to_numpy(np.float32)[pos[:, None] + np.arange(1 - lp, 1)]
+        xp = mine[price_cols].to_numpy(np.float32)[pos[:, None] + np.arange(1 - lp, 1)]
         xt = mine[GROUPS["text"]].to_numpy(np.float32)[pos[:, None] + np.arange(1 - lt, 1)]
         xf = mine[GROUPS["fund"]].to_numpy(np.float32)[pos]            # scaled frame only; block_rows just selects
         ok = (np.isfinite(xp).all((1, 2)) & np.isfinite(xt).all((1, 2)) & np.isfinite(xf).all(1))
         for k, v in zip(parts, (xp, xt, xf, np.full(len(rows), t), rows.index.to_numpy())):
             parts[k].append(v[ok])
     cat = lambda k, shape: np.concatenate(parts[k]) if parts[k] else np.empty(shape)
-    xp, xt = cat("xp", (0, lp, len(GROUPS["price"]))), cat("xt", (0, lt, len(GROUPS["text"])))
+    xp, xt = cat("xp", (0, lp, len(price_cols))), cat("xt", (0, lt, len(GROUPS["text"])))
     xf, tk, idx = cat("xf", (0, len(GROUPS["fund"]))), cat("ticker", (0,)).astype(np.int64), cat("idx", (0,))
     order = np.argsort(pd.Index(block_rows.index).get_indexer(idx), kind="stable")   # keep block_rows order
     xp, xt, xf, tk, idx = xp[order], xt[order], xf[order], tk[order], idx[order]

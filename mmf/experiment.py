@@ -13,11 +13,14 @@ import pandas as pd
 import torch
 
 from . import config as C   # first: puts `src` on sys.path
-from . import baselines as B, evaluate as E, train as TR
-from .frame import GROUPS, build_frame
+from . import aux as AUX, baselines as B, evaluate as E, train as TR
+from .context import CTX_FEATS, context_features
+from .frame import GROUPS, KEY, build_frame
 from .models import FusionNet
-from .windows import Scalers, make_samples
+from .windows import BINARY, Scalers, make_samples
 from src.data import build_panel
+from src.labels import make_labels
+from src.price_features import compute, market_features
 from src.splits import Fold, folds_from_config, split_samples
 
 OUT_BLOCKS = ("calib", "eval")
@@ -36,6 +39,9 @@ class Bundle:
     samples: dict            # block -> Samples
     tickers: list
     prior: dict              # symbol -> class frequency on train (3,)
+    price_cols: list | None = None   # columns of the price window; None = GROUPS["price"] (v1)
+    variant: str | None = None       # key of C.VARIANTS; None = v1
+    aux_id: str | None = None        # frozen aux directory the variant was built from
 
 
 def _class_prior(train, tickers):
@@ -56,6 +62,48 @@ def fold_bundle(panel, h, fold):
     """Bundle of one (h, fold) from a price panel, with the fold's sentiment model."""
     nlp_version = C.FOLD_NLP[fold.name]
     return bundle_from_frame(build_frame(panel, h, nlp_version), h, fold, nlp_version, panel.dataset_id, sorted(panel.ohlcv))
+
+
+def _ext_rows(panel, extra, h, columns):
+    """Frame rows of the external tickers: v1 price features against the v1 market proxy, same labels, fund/text at 0."""
+    market = market_features({s: panel.on_calendar(s) for s in sorted(panel.ohlcv)})
+    df = pd.concat({s: compute(f, market).join(make_labels(f, h)).join(f[["open", "close"]]) for s, f in extra.items()},
+                   names=KEY).reset_index()
+    df.loc[df["flag_hl_equal"].astype(bool), "close_loc"] = 0.5
+    df[[*GROUPS["fund"], *GROUPS["text"]]] = 0.0
+    df["usable"] = ((df["status"].astype(str) == "ok") & (df["as_of_session"] >= pd.Timestamp(C.START))
+                    & np.isfinite(df[GROUPS["price"]].to_numpy(dtype=float)).all(axis=1))
+    return df[list(columns)]
+
+
+def variant_bundle(panel, aux, h, fold, variant):
+    """Bundle of a v2 variant. External tickers only ever enter `train`; tune, calib and eval keep the panel's tickers."""
+    ext, ctx = C.VARIANTS[variant]
+    nlp_version, own = C.FOLD_NLP[fold.name], sorted(panel.ohlcv)
+    extra = aux.frames if ext else {}
+    frame = build_frame(panel, h, nlp_version)
+    if extra:
+        frame = pd.concat([frame, _ext_rows(panel, extra, h, frame.columns)], ignore_index=True)
+    price_cols = list(GROUPS["price"])
+    if ctx:
+        cx = context_features({**{s: panel.on_calendar(s) for s in own}, **extra}, aux.index, aux.glob)
+        frame = frame.merge(cx, on=KEY, how="left", validate="one_to_one")
+        frame["usable"] &= np.isfinite(frame[CTX_FEATS].to_numpy(dtype=float)).all(axis=1)
+        price_cols += CTX_FEATS
+    blocks = split_samples(frame[frame["usable"]], fold)
+    blocks = {k: rows if k == "train" else rows[rows["symbol"].astype(str).isin(own)] for k, rows in blocks.items()}
+    cols = [*price_cols, *(c for g in ("fund", "text") for c in GROUPS[g] if c not in BINARY)]
+    scaled = Scalers.fit(blocks["train"], cols).apply(frame)
+    tickers = own + sorted(extra)
+    samples = {k: make_samples(scaled, rows, tickers, price_cols=price_cols) for k, rows in blocks.items()}
+    blocks = {k: rows.loc[samples[k].row_index] for k, rows in blocks.items()}
+    return Bundle(fold, h, nlp_version, panel.dataset_id, frame, scaled, blocks, samples, tickers,
+                  _class_prior(blocks["train"], tickers), price_cols, variant, aux.aux_id)
+
+
+def out_name(b, name):
+    """Arm name in files and predictions: `name` for v1, `name@variant` for a variant bundle."""
+    return name if b.variant is None else f"{name}@{b.variant}"
 
 
 def shuffle_train_labels(b, seed=0):
@@ -101,13 +149,16 @@ def _write_preds(path, b, arm, seed, price_kind, probs, alpha):
         d[PRIOR_COLS] = _prior_rows(b, k)
         parts.append(d)
     out = pd.concat(parts, ignore_index=True).assign(
-        alpha=alpha, arm=arm, h=b.h, fold=b.fold.name, seed=seed, price_kind=price_kind,
+        alpha=alpha, arm=out_name(b, arm), h=b.h, fold=b.fold.name, seed=seed, price_kind=price_kind,
         nlp_version=b.nlp_version, dataset_id=b.dataset_id, git_commit=_git_commit())
+    if b.aux_id is not None:
+        out["aux_id"] = b.aux_id
     _atomic(path, lambda tmp: out.to_parquet(tmp, index=False))
 
 
 def _run_meta(b):
-    return {"dataset_id": b.dataset_id, "nlp_version": b.nlp_version, "h": b.h, "fold": b.fold.name}
+    meta = {"dataset_id": b.dataset_id, "nlp_version": b.nlp_version, "h": b.h, "fold": b.fold.name}
+    return meta if b.aux_id is None else {**meta, "aux_id": b.aux_id}
 
 
 def _require_same(path, got, want):
@@ -139,7 +190,7 @@ def _reusable(path, b, price_kind):
 
 def _net_maker(b, arm, price_kind):
     branches, fusion = C.ARMS[arm]
-    dims = [len(GROUPS[g]) for g in ("price", "text", "fund")]
+    dims = [len(b.price_cols or GROUPS["price"]), len(GROUPS["text"]), len(GROUPS["fund"])]
     return lambda: FusionNet(branches, fusion, len(b.tickers), *dims, price_kind)
 
 
@@ -155,10 +206,10 @@ def run_baseline(b, name, out_path):
     if _reusable(out_path, b, "none"):
         return
     start = time.time()
-    p = B.predict_baseline(name, b.blocks, b.scaled, b.frame)
+    p = B.predict_baseline(name, b.blocks, b.scaled, b.frame, b.price_cols)
     alpha = E.fit_alpha(b.samples["calib"].y, p["calib"], _prior_rows(b, "calib"))
     _write_preds(out_path, b, name, 0, "none", p, alpha)
-    print(f"h{b.h} {b.fold.name} {name} alpha={alpha} {time.time() - start:.0f}s", flush=True)
+    print(f"h{b.h} {b.fold.name} {out_name(b, name)} alpha={alpha} {time.time() - start:.0f}s", flush=True)
 
 
 def run_arm(b, arm, seed, price_kind, out_path, device, max_epochs=C.MAX_EPOCHS):
@@ -173,13 +224,13 @@ def run_arm(b, arm, seed, price_kind, out_path, device, max_epochs=C.MAX_EPOCHS)
     t, alpha = calibrate(b, z["calib"], z["eval"])
     _atomic(out_path.with_suffix(".pt"), lambda tmp: torch.save(fit["net"].state_dict(), tmp))
     _write_preds(out_path, b, arm, seed, kind, {k: E.apply_temperature(z[k], t) for k in OUT_BLOCKS}, alpha)
-    print(f"h{b.h} {b.fold.name} {arm} seed{seed} {kind} epoch={fit['best_epoch']} tune_nll={fit['tune_nll']:.4f} "
+    print(f"h{b.h} {b.fold.name} {out_name(b, arm)} seed{seed} {kind} epoch={fit['best_epoch']} tune_nll={fit['tune_nll']:.4f} "
           f"t={t:.3f} alpha={alpha} {time.time() - start:.0f}s", flush=True)
 
 
 def select_price_kind(b, run_dir, device, max_epochs=C.MAX_EPOCHS):
     """Encoder with the lowest mean tune NLL of dl_price over SELECT_SEEDS (tie: first listed), kept in select.json and reused only by the same run settings."""
-    path = Path(run_dir) / f"h{b.h}" / b.fold.name / "select.json"
+    path = Path(run_dir) / f"h{b.h}" / b.fold.name / ("select.json" if b.variant is None else f"select@{b.variant}.json")
     meta = {**_run_meta(b), "max_epochs": max_epochs}
     if path.exists():
         saved = json.loads(path.read_text())
@@ -215,6 +266,25 @@ def run_all(panel, horizons, folds, run_dir, device, arms=None, seeds=C.SEEDS, b
                     run_arm(b, arm, seed, kind, base / arm / f"seed{seed}.parquet", device, max_epochs)
 
 
+def run_variants(panel, aux, horizons, folds, run_dir, device, variants=tuple(C.VARIANTS), seeds=C.SEEDS,
+                 max_epochs=C.MAX_EPOCHS, build=variant_bundle):
+    """Per (h, fold, variant): the variant's baselines, then its DL arms x seed, as `name@variant` beside the v1 arms."""
+    if build is variant_bundle:
+        _dataset_id(panel)
+    for h in horizons:
+        for fold in folds:
+            for v in variants:
+                b = build(panel, aux, h, fold, v)
+                base = Path(run_dir) / f"h{h}" / fold.name
+                for name in C.V2_BASELINES[v]:
+                    run_baseline(b, name, base / out_name(b, name) / "seed0.parquet")
+                if C.V2_DL[v]:
+                    kind = select_price_kind(b, run_dir, device, max_epochs)
+                    for arm in C.V2_DL[v]:
+                        for seed in seeds:
+                            run_arm(b, arm, seed, kind, base / out_name(b, arm) / f"seed{seed}.parquet", device, max_epochs)
+
+
 def main(argv=None):
     folds = {f.name: f for f in folds_from_config()}
     ap = argparse.ArgumentParser(description=__doc__)
@@ -228,7 +298,13 @@ def main(argv=None):
     mode.add_argument("--name", help="free experiment under C.DATA/exp/NAME, kept apart from the locked run")
     ap.add_argument("--arms", nargs="+", choices=list(C.ARMS), help="DL arms to train (baselines always run)")
     ap.add_argument("--seeds", type=int, choices=range(1, len(C.SEEDS) + 1), help="first N seeds")
+    ap.add_argument("--variants", nargs="+", choices=list(C.VARIANTS), help="run these v2 variants instead of the v1 arms (needs --aux-dir)")
+    ap.add_argument("--aux-dir", help="frozen aux directory printed by `python -m mmf.aux freeze`")
     a = ap.parse_args(argv)
+    if a.variants and not a.aux_dir:
+        ap.error("--variants needs --aux-dir")
+    if a.variants and a.arms:
+        ap.error("--arms does not apply to --variants")
     kind, names, kw = "runs", a.folds, {}
     if a.name:
         kind = f"exp/{a.name}"
@@ -238,7 +314,13 @@ def main(argv=None):
     elif a.shuffle_labels:
         kind, names, kw = "shuffle", ["C"], {"seeds": (59,), "build": lambda p, h, f: shuffle_train_labels(fold_bundle(p, h, f))}
     panel = build_panel(stock_dir=a.stock_dir)
-    run_all(panel, a.h, [folds[n] for n in names], C.DATA / kind / _dataset_id(panel)[:16], a.device, **kw)
+    run_dir = C.DATA / kind / _dataset_id(panel)[:16]
+    if a.variants:
+        aux = AUX.load(a.aux_dir, panel.calendar)
+        if a.shuffle_labels:
+            kw["build"] = lambda *args: shuffle_train_labels(variant_bundle(*args))
+        return run_variants(panel, aux, a.h, [folds[n] for n in names], run_dir, a.device, variants=tuple(a.variants), **kw)
+    run_all(panel, a.h, [folds[n] for n in names], run_dir, a.device, **kw)
 
 
 if __name__ == "__main__":

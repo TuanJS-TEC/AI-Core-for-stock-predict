@@ -1,11 +1,13 @@
-# NLP_Module
+# News (ai_core.news)
+
+Since the 2026-11 restructure the code lives in `ai_core/news` (forecasters in `ai_core/models/volcast`, the app in `ai_core/fusion/app.py`); `NLP_Module/` is now only the data home (`data/nlp.db`, models, tessdata) and the venv. Run the commands below from `NLP_Module/` with `.venv/bin/python`; tests are in `../tests/{news,models/volcast}`.
 
 Financial-news NLP subsystem: news -> company -> target-specific passage -> sentiment -> point-in-time text features
 for T+2/T+5 forecasting. Design/plan: `docs/`, spec of timestamps and features: `docs/temporal_spec.md`.
 Usage rights of sources: `docs/source_terms.md` (not cleared for redistribution; research use, low rate, no sharing of article text).
 
 ```
-.venv/bin/python -m pytest -q tests                                # tests
+.venv/bin/python -m pytest -q ../tests/news ../tests/models/volcast                              # tests
 CLI="python -m ai_core.news.cli"
 $CLI survey cafef 2026-07-01 2026-10-20 --out data/coverage_cafef.csv   # sitemap-only coverage
 $CLI collect cafef 2026-10-01 2026-10-20 --symbols VCB FPT --limit 100  # polite fetch (1 req/s, robots.txt)
@@ -21,8 +23,8 @@ $CLI train-phobert --epochs 5 ; $CLI eval --model phobert:data/models/phobert-v1
 $CLI snapshot --model baseline:... --mode backtest --symbols VCB FPT --start 2026-10-01 --end 2026-10-20
 $CLI evidence VCB --model baseline:data/models/baseline.joblib      # per-article evidence JSON for the website
 $CLI -v quotes --symbols VCB FPT   # SSI iBoard price next to live sentiment; stores a row in market_quote
-scripts/live_update.sh             # collect today's news -> baseline + PhoBERT -> SSI quotes (Mon-Fri 9:00-15:15)
-# cron, every 15 min:  */15 * * * * "<repo>/scripts/live_update.sh" >> "<repo>/data/live.log" 2>&1
+../jobs/live_update.sh             # collect today's news -> baseline + PhoBERT -> SSI quotes (Mon-Fri 9:00-15:15)
+# cron, every 15 min:  */15 * * * * "<repo>/jobs/live_update.sh" >> "<repo>/NLP_Module/data/live.log" 2>&1
 python -m ai_core.models.volcast.walk_forward                                 # 3-fold walk-forward: per-fold PhoBERT + forecaster (needs data/prices.csv)
 python -m ai_core.models.volcast.fundamentals                                 # LNST % change parsed from the HOSE profit explanations
 python -c "import pandas as pd, vnfinancialdata as vnf; pd.concat([vnf.load(e, s, start_year=2019) for e in ('HSX','HNX') for s in ('balance_sheet','cash_flow','income_statement')], ignore_index=True).to_parquet('data/bctc.parquet', index=False)"   # all BCTC 2019+ (2020 feeds 2021 growth; long format)
@@ -44,6 +46,6 @@ thresholds: baseline H > 0.888, PhoBERT H > 0.571, both ~73% coverage at 0.85 ac
 Add `-v` / `-vv` to any command for fetch, link, passage and probability logs.
 `quotes` logs one line per symbol - sentiment, abstain/weak share, matched price, move, move vs an equal-weight
 market proxy - and is the monitoring view for sentiment against real prices. It measures CO-MOVEMENT, not accuracy:
-the text features have no measured forecasting power (see `docs/model_report.md`). UI: `streamlit run app.py`,
+the text features have no measured forecasting power (see `docs/news/model_report.md`). UI: `streamlit run ../ai_core/fusion/app.py`,
 tabs "Theo mã CK", "Sentiment vs Giá SSI" and "Dự báo biến động".
 Never tune on the `eval` stream.

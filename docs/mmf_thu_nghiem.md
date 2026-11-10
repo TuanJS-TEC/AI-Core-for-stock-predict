@@ -21,7 +21,7 @@ SNAP=Pipeline_V1.2/stock/snapshots/24251acc1a5695bd
 
 | Muốn thử | File |
 |---|---|
-| Đặc trưng giá, thị trường | `Pipeline_V1.2/src/price_features.py` (dùng chung với Pipeline, chạy lại test của nó) |
+| Đặc trưng giá, thị trường | `ai_core/prices/price_features.py` (dùng chung với Pipeline, chạy lại test của nó) |
 | Chỉ số tài chính | `mmf/fundamentals.py` (`FUND_FEATS`) |
 | Đặc trưng tin tức | `mmf/text.py` (`TEXT_FEATS`) |
 | Kiến trúc nhánh, cách hợp nhất | `mmf/models.py` |

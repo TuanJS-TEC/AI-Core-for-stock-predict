@@ -5,10 +5,10 @@ Mô hình dự báo cũ (Linear/NLinear/DLinear gộp 15 mã) đã bị gỡ kh�
 ## Cấu trúc
 
 ```
-sync_stock_parquet.py   đồng bộ giá từ vnstock (cron 15:20 các ngày trong tuần), kiểm tra, ghi stock/ và manifest
+jobs/sync_prices.py     (logic: ai_core/prices/sync.py) đồng bộ giá từ vnstock (cron 15:20 các ngày trong tuần), kiểm tra, ghi stock/ và manifest
 data/hose_holidays.csv  ngày nghỉ HOSE (cột date,verified; hiện toàn bộ verified=false, cần đối chiếu thông báo HOSE)
 stock/                  {mã}_stock.parquet, manifest.json, snapshots/  (git bỏ qua)
-src/
+ai_core/prices/
   config.py             đường dẫn, mã, đồng bộ, nhãn, fold, lịch
   data.py               đọc parquet -> Panel (trục ngày chung, OHLCV, lịch phiên, khoảng trống, dataset_id)
   validation.py         check_ohlcv, lịch phiên, ngày thường không giải thích được
@@ -19,7 +19,7 @@ src/
   dataset.py            build_dataset(panel, h) và inference_features(panel): train và suy luận dùng chung một đường đặc trưng
   sessions.py           ngày nghỉ, phiên thứ n sau một ngày, phiên thiếu lúc now (ai_core.fusion.live dùng)
   stats.py              block bootstrap theo ngày (ai_core.fusion.direction dùng)
-tests/                  test của lớp dữ liệu
+tests/prices/           test của lớp dữ liệu
 ```
 
 ## Đồng bộ và toàn vẹn
@@ -48,7 +48,7 @@ Cần nhớ khi đánh giá: số mẫu hiệu dụng nhỏ (nhãn chồng lấn
 
 ## Đối chiếu với TCBS
 
-`crosscheck_tcbs.py` chạy bằng `~/.venv_6x` (vnstock thế hệ 6). Nó chỉ đọc `stock/`, so 20 phiên gần nhất của mọi mã với TCBS Open API, rồi ghi nối mọi chỗ lệch vào `outputs/crosscheck_tcbs.csv`. Một chỗ lệch là giá lệch quá `SYNC_BASIS_TOL`, khối lượng lệch quá 2%, thiếu phiên ở một bên, hoặc lỗi tải. Phiên TCBS sống tối đa 24 giờ và không tự gia hạn: mỗi ngày cần `~/.venv_6x/bin/vnstock auth tcbs` với Smart OTP từ app TCInvest. Ngày nào chưa mở phiên thì lượt đối chiếu chỉ ghi "skipped", sync KBS vẫn chạy bình thường.
+`jobs/crosscheck_tcbs.py` (logic: ai_core/prices/crosscheck.py) chạy bằng `~/.venv_6x` với `PYTHONPATH=<gốc repo>` (vnstock thế hệ 6). Nó chỉ đọc `stock/`, so 20 phiên gần nhất của mọi mã với TCBS Open API, rồi ghi nối mọi chỗ lệch vào `outputs/crosscheck_tcbs.csv`. Một chỗ lệch là giá lệch quá `SYNC_BASIS_TOL`, khối lượng lệch quá 2%, thiếu phiên ở một bên, hoặc lỗi tải. Phiên TCBS sống tối đa 24 giờ và không tự gia hạn: mỗi ngày cần `~/.venv_6x/bin/vnstock auth tcbs` với Smart OTP từ app TCInvest. Ngày nào chưa mở phiên thì lượt đối chiếu chỉ ghi "skipped", sync KBS vẫn chạy bình thường.
 
 ## Việc còn mở
 

@@ -24,3 +24,5 @@ NLP_Module/data/stock.bak-*/
 NLP_Module/data/tessdata/
 NLP_Module/data/live.lock
 NLP_Module/data/live.log
+vnstock-migration/
+ai_core.egg-info/

@@ -33,8 +33,42 @@ Chạy `.venv_mmf/bin/python -m pytest tests -q` sau mỗi thay đổi, vì các
 
 Nghi ngờ rò rỉ (ví dụ AUC Tăng/Giảm ≥ 0.65 hoặc Macro-F1 ≥ 0.50 trên toàn mẫu eval) thì chạy: `.venv_mmf/bin/python -m mmf.leak_check --stock-dir $SNAP`.
 
+## Variant v2 của nhánh giá
+
+Ba variant chạy song song với các arm v1 và ghi kết quả thành arm tên `<model>@<variant>` trong cùng run dir:
+
+| Variant | Khác v1 ở đâu |
+|---|---|
+| `base` | Dữ liệu y như v1, chỉ thêm mô hình hai tầng `hurdle_logit_price`, `hurdle_gbm_price` |
+| `ext` | Train thêm trên các mã VN100 ngoài 15 mã; tune, calib, eval vẫn chỉ 15 mã |
+| `ext_ctx` | `ext` cộng 19 đặc trưng bối cảnh (VNINDEX, độ rộng thị trường, S&P 500, VIX, Brent, USD/VND, hạng cắt ngang) |
+
+```bash
+# Dữ liệu phụ đã đóng băng: thư mục in ra bởi `python -m mmf.aux freeze`
+AUX=data/mmf/aux/<aux_id>
+.venv_mmf/bin/python -m mmf.experiment --name thu1 --stock-dir $SNAP                                  # arm v1, để có đối chứng
+.venv_mmf/bin/python -m mmf.experiment --name thu1 --stock-dir $SNAP --variants base ext ext_ctx --aux-dir $AUX
+.venv_mmf/bin/python -m mmf.compare --run-dir data/mmf/exp/thu1/24251acc1a5695bd --out data/mmf/exp/thu1/report.md
+```
+
+Báo cáo có thêm mục "R4: v2 so với v1" và "Từng bước cải tiến". Sửa ở đâu: đặc trưng bối cảnh trong `mmf/context.py`, mã ngoài và đóng băng trong `mmf/aux.py`, chuỗi toàn cầu trong `mmf/globaldata.py`, danh sách variant và ứng viên trong `mmf/config.py`. 12 ứng viên v2 đã đăng ký trong phụ lục 2026-11-10 của `mmf_preregistration.md`; thêm ứng viên mới thì phải ghi thêm phụ lục trước khi chạy.
+
+## Trước lượt chấm cuối (chủ dự án chạy)
+
+Khi có `docs/reports/mmf_lock_v2.json`, `mmf.holdout` chấm thêm model v2 đã khóa (R4) trong cùng lượt chạy và đòi `--aux-dir`. Dữ liệu phụ phải mới ngang dữ liệu giá, nên chạy đúng thứ tự:
+
+```bash
+cd Pipeline_V1.2 && ../NLP_Module/.venv/bin/python sync_stock_parquet.py --stock-dir stock_ext --delay 4 && cd ..   # 85 mã ngoài
+.venv_mmf/bin/python -m mmf.aux index        # VNINDEX
+.venv_mmf/bin/python -m mmf.globaldata       # S&P 500, VIX, Brent, USD/VND
+.venv_mmf/bin/python -m mmf.aux freeze       # in ra đường dẫn aux
+.venv_mmf/bin/python -m mmf.holdout --h 2 --aux-dir <đường dẫn vừa in>
+```
+
+Thiếu `--aux-dir`, aux cũ hơn dữ liệu giá hoặc aux bị sửa sau khi đóng băng thì lệnh dừng trước khi huấn luyện và trước khi ghi file khóa chạy, nên có thể sửa rồi chạy lại.
+
 ## Ba điều không được làm
 
 1. **Không chạy `mmf.holdout`** để thử. Mỗi h chỉ chạy được một lần, cho cấu hình đã khóa trong `docs/reports/mmf_lock.json`.
 2. **Không ghi đè** `docs/reports/mmf_lock.json`, `mmf_dev_report.md` hay `mmf_preregistration.md`.
-3. **Không gọi kết quả thử nghiệm là kết quả cuối.** Ba cửa sổ eval A, B, C đã bị nhìn nhiều lần. Một cấu hình mới chỉ được coi là đã kiểm chứng khi nó được khóa và đăng ký trong `mmf_preregistration.md` trước khi chạy vùng chấm cuối, tức là trước khi T+2 đủ 40 phiên, khoảng cuối tháng 12/2026. Hiện `mmf.holdout` chỉ đọc file khóa v1, nên muốn chấm thêm một phiên bản v2 trên cùng vùng thì cần sửa code trước mốc đó.
+3. **Không gọi kết quả thử nghiệm là kết quả cuối.** Ba cửa sổ eval A, B, C đã bị nhìn nhiều lần. Một cấu hình mới chỉ được coi là đã kiểm chứng khi nó được khóa và đăng ký trong `mmf_preregistration.md` trước khi chạy vùng chấm cuối, tức là trước khi T+2 đủ 40 phiên, khoảng cuối tháng 12/2026. `mmf.holdout` đọc file khóa v1 và, nếu có, file khóa v2 của nhánh giá (`mmf_lock_v2.json`, viết bằng `mmf.compare --lock-v2`); một phiên bản khác nữa thì cần sửa code và ghi phụ lục trước mốc đó.

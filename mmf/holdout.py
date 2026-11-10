@@ -8,16 +8,18 @@ import numpy as np
 import pandas as pd
 
 from . import config as C   # first: puts `src` on sys.path
-from . import compare as CP, explain as EXP, experiment as X, recommend as R
+from . import aux as AUX, compare as CP, explain as EXP, experiment as X, recommend as R
 from src import config as PC
 from src.data import build_panel
 from src.splits import Fold
 
 LOCK_FILE = C.REPORTS / "mmf_lock.json"
+LOCK_V2_FILE = C.REPORTS / "mmf_lock_v2.json"      # optional: the v2 price model scored in the same single run (R4)
 EARLY_VERDICT = "Chưa đủ phiên để kết luận (chạy sớm)"
 NEWS_MIN_RATIO = 0.25      # eval share of rows with news, against calib, below which the news pipeline is suspect
 STEP7 = (f"Step 7, the owner decides. h2 and h5 mature at different times: run each h once it has its own {C.HOLDOUT_MIN} matured sessions, "
          "e.g. `.venv_mmf/bin/python -m mmf.holdout --h 2` first and `--h 5` a few sessions later. "
+         "When docs/reports/mmf_lock_v2.json exists, refresh and freeze the aux data first and pass `--aux-dir` (see docs/mmf_thu_nghiem.md). "
          "Eval predictions with y_true are written under C.DATA/holdout before the guard files; no other tool may score them. "
          "If writing the report fails after the guard exists, never delete the guard: in Python, with a panel of the same dataset "
          "(dataset_id in the guard), call `mmf.holdout.write_report(h, panel)`, which scores the saved predictions of the existing run dir.")
@@ -50,16 +52,22 @@ def load_lock():
     return json.loads(LOCK_FILE.read_text())
 
 
+def load_lock_v2():
+    """The v2 lock, or None when there is none (v1 is then scored exactly as before)."""
+    return json.loads(LOCK_V2_FILE.read_text()) if LOCK_V2_FILE.exists() else None
+
+
 def _arms(entry):
     """DL arms of one h: the locked ones (stack has no network), its unimodal inputs, and those of R3."""
     want = (entry["fusion"], entry["unimodal"], *CP.UNIMODAL, "fusion_concat", *CP.ABLATIONS)
     return [a for a in dict.fromkeys(want) if a != "stack"]
 
 
-def _comparisons(preds, entry, early):
-    """R1, R2, R3 on the single eval block with HOLDOUT_BLOCK, fold_wins and n_folds (0 or 1, 1). An early run gets no verdict."""
+def _comparisons(preds, entry, early, v2=None):
+    """R1, R2, R3 (and R4 for a locked v2 model) on the single eval block with HOLDOUT_BLOCK, fold_wins and n_folds (0 or 1, 1). An early run gets no verdict."""
     fusion = entry["fusion"]
-    pairs = [("R1", fusion, entry["baseline"]), ("R2", fusion, entry["unimodal"]), *(("R3", "fusion_concat", ab) for ab in CP.ABLATIONS)]
+    pairs = [("R1", fusion, entry["baseline"]), ("R2", fusion, entry["unimodal"]), *(("R3", "fusion_concat", ab) for ab in CP.ABLATIONS),
+             *((("R4", v2, entry["baseline"]), ("R4", v2, entry["unimodal"])) if v2 else ())]
     out = pd.DataFrame([{"so_sanh": name, "a": a, "b": b, **CP.compare(preds, {"F": a}, {"F": b}, block=C.HOLDOUT_BLOCK)} for name, a, b in pairs])
     return out.assign(verdict=EARLY_VERDICT) if early else out
 
@@ -71,7 +79,7 @@ def _simulations(preds, b, fusion):
     return sim.assign(calib_n=[str(int(v)) if pd.notna(v) else "" for v in sim["calib_n"]])
 
 
-def _markdown(path, b, entry, preds, cmp, early):
+def _markdown(path, b, entry, preds, cmp, early, v2=None, aux_id=None):
     """Markdown report (Vietnamese) of one h: sample, R1-R3, every arm, leak alarms, the recommendation rule, per symbol."""
     t = CP.tables(preds)        # verdicts of its R1-R3 are unused: they ask for every dev fold
     ev, fusion = b.blocks["eval"], entry["fusion"]
@@ -84,6 +92,8 @@ def _markdown(path, b, entry, preds, cmp, early):
         f"- Train đến {b.fold.train_end:%Y-%m-%d}, tune đến {b.fold.tune_end:%Y-%m-%d}, calib đến {b.fold.calib_end:%Y-%m-%d}. Mỗi arm học sâu 5 seed, xác suất là trung bình qua seed.",
         f"- Khóa: fusion `{fusion}`, baseline `{entry['baseline']}`, nhánh đơn `{entry['unimodal']}`, bộ mã hóa giá `{entry['price_kind']}`.",
         f"- Dataset chấm: {b.dataset_id}. Dataset lúc khóa: {entry['dataset_id']}. Commit: {X._git_commit()}.",
+        *([f"- Khóa v2 (R4): model giá `{v2}`, dữ liệu phụ `{aux_id}`. R4 so model này với baseline và nhánh đơn của v1 trên các hàng chung; "
+           "luật ở phụ lục v2 ngày 2026-11-10 của luật đặt trước."] if v2 else []),
         f"- Điểm cảm xúc `{b.nlp_version}`; {ev['has_news'].mean():.1%} mẫu trên vùng này có tin.", "",
         "Giới hạn dữ liệu (spec mục 6): 15 mã (6 mã ngân hàng thiếu biên gộp và thanh toán hiện hành, SSI thiếu BCTC, GAS có rất ít tin), "
         "tin chỉ từ 2021-10-21, BCTC theo năm không có ngày công bố nên năm Y coi là biết từ 01/04 năm Y+1, "
@@ -124,8 +134,24 @@ def _run_dir(dataset_id):
     return C.DATA / "holdout" / dataset_id[:16]
 
 
-def run(h, panel, guard_dir=C.REPORTS, early=False, device="cuda"):
-    """Train on fold F, then guard, then score. Refused when not ready; once a guard exists a failed run stays refused."""
+def _run_v2(e2, b, panel, aux, base, device):
+    """Train the locked v2 model on the variant bundle of the same fold; every file is on disk before any guard."""
+    name, variant = e2["model"].split("@")
+    b2 = X.variant_bundle(panel, aux, b.h, b.fold, variant)
+    if name in C.ARMS:
+        for seed in C.SEEDS:
+            X.run_arm(b2, name, seed, e2["price_kind"], base / e2["model"] / f"seed{seed}.parquet", device)
+    else:
+        X.run_baseline(b2, name, base / e2["model"] / "seed0.parquet")
+
+
+def run(h, panel, guard_dir=C.REPORTS, early=False, device="cuda", aux=None):
+    """Train on fold F, then guard, then score. Refused when not ready; once a guard exists a failed run stays refused.
+
+    With a v2 lock the locked v2 model is trained from `aux` before the guard too, and scored as R4 in the same report."""
+    lock2 = load_lock_v2()
+    if lock2 is not None and aux is None:
+        raise ValueError(f"{LOCK_V2_FILE.name} tồn tại nhưng thiếu aux: chạy lại với --aux-dir (dữ liệu phụ đã đóng băng)")
     rows = _rows(panel, h)
     check_ready(rows, h, guard_dir, early)
     entry = load_lock()[str(h)]
@@ -139,7 +165,11 @@ def run(h, panel, guard_dir=C.REPORTS, early=False, device="cuda"):
     for arm in _arms(entry):
         for seed in C.SEEDS:
             X.run_arm(b, arm, seed, entry["price_kind"], base / arm / f"seed{seed}.parquet", device)
-    body = json.dumps({"dataset_id": b.dataset_id, "git_commit": X._git_commit(), "n_sessions": int(b.blocks["eval"]["as_of_session"].nunique()),
+    v2 = {}
+    if lock2 is not None:
+        _run_v2(lock2[str(h)], b, panel, aux, base, device)
+        v2 = {"v2": lock2[str(h)]["model"], "aux_id": aux.aux_id}
+    body = json.dumps({**v2, "dataset_id": b.dataset_id, "git_commit": X._git_commit(), "n_sessions": int(b.blocks["eval"]["as_of_session"].nunique()),
                        "early": early, "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}, indent=2)
     for g in _guards(guard_dir, h):
         g.parent.mkdir(parents=True, exist_ok=True)
@@ -159,7 +189,8 @@ def write_report(h, panel, guard_dir=C.REPORTS):
     entry, early = load_lock()[str(h)], guard["early"]
     b = _bundle(panel, h, _rows(panel, h))   # ponytail: rebuilds the frames so run and recovery share one path, text features are cached
     preds = CP.add_stack(CP.load_h(_run_dir(guard["dataset_id"]), h))
-    return _markdown(Path(guard_dir) / f"mmf_holdout_h{h}.md", b, entry, preds, _comparisons(preds, entry, early), early)
+    v2 = guard.get("v2")
+    return _markdown(Path(guard_dir) / f"mmf_holdout_h{h}.md", b, entry, preds, _comparisons(preds, entry, early, v2), early, v2, guard.get("aux_id"))
 
 
 def main(argv=None):
@@ -167,10 +198,12 @@ def main(argv=None):
     ap.add_argument("--h", type=int, nargs="+", required=True, choices=C.HORIZONS)
     ap.add_argument("--early", action="store_true", help=f"minimum {C.HOLDOUT_MIN_EARLY} sessions instead of {C.HOLDOUT_MIN}")
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--aux-dir", help="frozen aux directory (`python -m mmf.aux freeze`); required when the v2 lock exists")
     a = ap.parse_args(argv)
     panel = build_panel()
+    aux = AUX.load(a.aux_dir, panel.calendar) if a.aux_dir else None
     for h in a.h:
-        print(run(h, panel, early=a.early, device=a.device))
+        print(run(h, panel, early=a.early, device=a.device, aux=aux))
 
 
 if __name__ == "__main__":

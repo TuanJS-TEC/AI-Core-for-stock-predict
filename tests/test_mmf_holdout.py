@@ -13,6 +13,7 @@ LOCK = {"5": {"baseline": "prior_fixed", "unimodal": "dl_price", "fusion": "fusi
 def data_dir(tmp_path, monkeypatch):
     """C.DATA under tmp_path, so the untracked guard of a real holdout run never reaches these tests."""
     monkeypatch.setattr(C, "DATA", tmp_path / "data")
+    monkeypatch.setattr(H, "LOCK_V2_FILE", tmp_path / "lock_v2.json")     # absent unless a test writes it
     return C.DATA
 
 
@@ -183,6 +184,50 @@ def test_failed_report_is_recovered_from_the_saved_run(tmp_path, stubbed, monkey
         H.write_report(5, SimpleNamespace(dataset_id="e" * 64, ohlcv=stubbed.panel.ohlcv), guard_dir=tmp_path)
     out = H.write_report(5, stubbed.panel, guard_dir=tmp_path)
     assert out == tmp_path / "mmf_holdout_h5.md" and len(r_table(out.read_text())) == 5 and len(stubbed.trained) == n and stubbed.guard.exists()
+
+
+V2 = "hurdle_logit_price@base"
+AUX = SimpleNamespace(aux_id="auxid0123456789ab")
+
+
+def lock_v2(monkeypatch):
+    """A v2 lock, and variant_bundle stubbed to the v1 bundle tagged with the variant (the stub frame has no aux data)."""
+    from dataclasses import replace
+    H.LOCK_V2_FILE.write_text(json.dumps({"5": {"model": V2, "price_kind": "none", "aux_id": "devaux"}}))
+    monkeypatch.setattr(X, "variant_bundle", lambda panel, aux, h, fold, variant: replace(X.fold_bundle(panel, h, fold), variant=variant, aux_id=aux.aux_id))
+
+
+def test_without_v2_lock_report_has_no_r4(tmp_path, stubbed):
+    text = H.run(5, stubbed.panel, guard_dir=tmp_path, device="cpu").read_text()
+    assert {r[0] for r in r_table(text)} == {"R1", "R2", "R3"} and "v2" not in json.loads(stubbed.guard.read_text())
+
+
+def test_v2_lock_without_aux_raises_before_guard(tmp_path, stubbed, monkeypatch, data_dir):
+    lock_v2(monkeypatch)
+    with pytest.raises(ValueError, match="aux"):
+        H.run(5, stubbed.panel, guard_dir=tmp_path, device="cpu")
+    assert not stubbed.trained and not stubbed.guard.exists() and not list(data_dir.rglob("*.parquet"))
+
+
+def test_v2_lock_adds_two_r4_rows(tmp_path, stubbed, monkeypatch):
+    lock_v2(monkeypatch)
+    text = H.run(5, stubbed.panel, guard_dir=tmp_path, device="cpu", aux=AUX).read_text()
+    table = r_table(text)
+    assert [r[:3] for r in table if r[0] == "R4"] == [["R4", V2, "prior_fixed"], ["R4", V2, "dl_price"]] and len(table) == 7
+    body = json.loads(stubbed.guard.read_text())
+    assert body["v2"] == V2 and body["aux_id"] == AUX.aux_id and AUX.aux_id in text
+    d = pd.read_parquet(C.DATA / "holdout" / ("d" * 16) / f"h5/F/{V2}/seed0.parquet")
+    assert set(d["arm"]) == {V2}
+    again = H.write_report(5, stubbed.panel, guard_dir=tmp_path).read_text()         # recovery needs no aux
+    assert len([r for r in r_table(again) if r[0] == "R4"]) == 2
+
+
+def test_v2_failure_leaves_no_guard(tmp_path, stubbed, monkeypatch, data_dir):
+    lock_v2(monkeypatch)
+    monkeypatch.setattr(X, "variant_bundle", lambda *a: (_ for _ in ()).throw(RuntimeError("aux broken")))
+    with pytest.raises(RuntimeError):
+        H.run(5, stubbed.panel, guard_dir=tmp_path, device="cpu", aux=AUX)
+    assert not stubbed.guard.exists() and not (data_dir / "holdout" / "mmf_holdout_h5.lock").exists()
 
 
 def test_report_needs_a_guard(tmp_path, stubbed):

@@ -105,6 +105,20 @@ def test_ext_train_labels_are_purged(bundles):
     assert pd.to_datetime(tr.label_end[ext]).max() <= FOLD.train_end and (tr.y[ext] >= 0).all()
 
 
+def test_future_change_does_not_touch_past_variant_features(panel, aux, bundles, monkeypatch):
+    """Everything after the cut is changed (prices, external tickers, index, global bars); rows <= cut must not move."""
+    cut, frame = FOLD.calib_end, FR.build_frame
+    monkeypatch.setattr(X, "build_frame", lambda p, h, v: frame(p, h, v, text_fn=no_text))
+    bump = lambda f: f.assign(**{c: f[c].where(f.index <= cut, f[c] * 1.7) for c in ("open", "high", "low", "close")})
+    panel2 = build_panel(PC.TICKERS, {k: bump(v) for k, v in load_raw().items()})
+    aux2 = replace(aux, frames={s: bump(f) for s, f in aux.frames.items()}, index=bump(aux.index),
+                   glob=aux.glob.assign(close=aux.glob.close.where(aux.glob.date <= cut, aux.glob.close * 1.7)))
+    a, b = bundles["ext_ctx"], X.variant_bundle(panel2, aux2, H, FOLD, "ext_ctx")
+    past = lambda x: x.frame[x.frame.as_of_session <= cut].set_index(["symbol", "as_of_session"])[x.price_cols]
+    pd.testing.assert_frame_equal(past(a), past(b))
+    assert not a.frame[a.price_cols].equals(b.frame[b.price_cols])
+
+
 def run(tmp_path, b, mp):
     mp.setattr(C, "PRICE_KINDS", ("gru",))
     mp.setattr(C, "SELECT_SEEDS", (59,))

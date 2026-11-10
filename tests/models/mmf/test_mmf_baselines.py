@@ -57,3 +57,42 @@ def test_logit_gbm_shape_probs_and_order(name):
         assert p[k].shape == (len(blocks[k]), 3) and (p[k] >= 0).all() and p[k].sum(1) == pytest.approx(1)
     rev = {**blocks, "eval": blocks["eval"].iloc[::-1]}
     assert B.predict_baseline(name, rev, f, f)["eval"] == pytest.approx(p["eval"][::-1])
+
+
+HCOLS = list("abcde")
+
+
+def hurdle_toy(flat=True, n=600):
+    """Column a decides whether the price moves (|a| > 1), column b the direction; the two signals are independent."""
+    x = np.random.default_rng(0).normal(size=(n, 5))
+    y = np.where(x[:, 1] > 0, 2, 0)
+    if flat:
+        y = np.where(np.abs(x[:, 0]) > 1, y, 1)
+    f = pd.DataFrame(x, columns=HCOLS).assign(symbol="FPT", as_of_session=pd.bdate_range("2023-01-02", periods=n), status="ok", label=y.astype(float))
+    return f, {"train": f.iloc[:400], "calib": f.iloc[400:500], "eval": f.iloc[500:]}
+
+
+@pytest.mark.parametrize("name", C.HURDLE)
+def test_hurdle_rows_sum_to_one_and_shape(name):
+    f, blocks = hurdle_toy()
+    p = B.predict_baseline(name, blocks, f, f, HCOLS)
+    for k in ("calib", "eval"):
+        assert p[k].shape == (100, 3) and np.allclose(p[k].sum(1), 1) and (p[k] > 0).all() and (p[k] < 1).all()
+
+
+def test_hurdle_learns_two_separate_signals():
+    f, blocks = hurdle_toy()
+    p = B.predict_baseline("hurdle_gbm_price", blocks, f, f, HCOLS)["eval"]
+    assert (p.argmax(1) == blocks["eval"]["label"].to_numpy()).mean() > 0.8
+
+
+def test_hurdle_single_class_stage_does_not_crash():
+    f, blocks = hurdle_toy(flat=False)
+    p = B.predict_baseline("hurdle_logit_price", blocks, f, f, HCOLS)["eval"]
+    assert (p[:, 1] > 0).all() and (p[:, 1] < 0.05).all() and np.allclose(p.sum(1), 1)
+
+
+def test_unknown_name_still_raises():
+    f, blocks = hurdle_toy()
+    with pytest.raises(ValueError):
+        B.predict_baseline("hurdle_svm_price", blocks, f, f, HCOLS)

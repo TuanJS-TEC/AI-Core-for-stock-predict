@@ -19,6 +19,15 @@ UNIMODAL = ("dl_price", "dl_fund", "dl_text")
 FUSION = ("fusion_concat", "fusion_attention", "stack")
 GROUPS = {"baseline": C.BASELINES, "unimodal": UNIMODAL, "fusion": FUSION}
 ABLATIONS = ("no_price", "no_fund", "no_text")
+# v2 price candidates (prereg appendix 2026-11-10): fixed before any of them was run
+V2 = tuple(f"{n}@{v}" for v in C.VARIANTS for n in (*C.V2_BASELINES[v], *C.V2_DL[v]))
+LADDER = (*((f"{m}@{v}", w) for m in ("logit_price", "gbm_price", "dl_price") for v, w in (("ext", m), ("ext_ctx", f"{m}@ext"))),
+          *((f"hurdle_{k}_price@{v}", f"{k}_price{w}") for k in ("logit", "gbm") for v, w in (("base", ""), ("ext_ctx", "@ext_ctx"))))
+V2_NOTES = ["Giới hạn của v2:",
+            "- Fold A, B, C đã bị nhìn nhiều lần, nên R4 trên vùng phát triển chỉ để chọn, không phải kết quả cuối.",
+            "- Danh sách VN100 của các mã ngoài lấy ngày 2026-11-10: tập train của mã ngoài có thiên lệch sống sót (hàng chấm điểm vẫn chỉ là 15 mã).",
+            "- Chuỗi toàn cầu lấy từ Yahoo chart API, không phải nguồn chính thức.",
+            "- Chính sách điều chỉnh giá của nguồn vẫn là \"unknown\"."]
 KEYS = ["symbol", "as_of_session", "block"]
 STACK_FOLDS = 5
 
@@ -169,7 +178,7 @@ def tables(preds):
             per_symbol.append({"h": keys[0], "fold": keys[1], "arm": keys[2], "symbol": s, "alpha": gs["alpha"].iloc[0], "n_days": gs["as_of_session"].nunique(),
                                **E.scores(gs["y_true"], gs[E.PROB_COLS].to_numpy(), gs["alpha"].iloc[0], gs[PRIOR_COLS].to_numpy())})
     arms, per_symbol = pd.DataFrame(arms), pd.DataFrame(per_symbol)
-    rows, picks = {"r1": [], "r2": [], "r3": []}, []
+    rows, picks = {"r1": [], "r2": [], "r3": [], "r4": [], "ladder": []}, []
     for h, ph in preds.groupby("h"):
         folds = sorted(set(ph["fold"]))
         pk = _picks(ph, folds)
@@ -179,6 +188,11 @@ def tables(preds):
             rows[name].append(_row(ph, h, by("fusion"), by(other), all_folds))
         for ab in ABLATIONS:
             rows["r3"].append(_row(ph, h, dict.fromkeys(folds, "fusion_concat"), dict.fromkeys(folds, ab), all_folds))
+        if set(ph["arm"]) & set(V2):
+            v2 = {f: pick(ph, f, V2) for f in folds if set(ph.loc[ph["fold"] == f, "arm"]) & set(V2)}
+            for name, other in (("v2 so với baseline", by("baseline")), ("v2 so với dl_price", dict.fromkeys(folds, "dl_price"))):
+                rows["r4"].append({"so_sanh": name, **_row(ph, h, v2, other, all_folds)})
+            rows["ladder"] += [_row(ph, h, dict.fromkeys(folds, a), dict.fromkeys(folds, b), all_folds) for a, b in LADDER]
     leak = arms[(arms["macro_f1"] >= C.LEAK_ALARM_F1) | (arms["auc_up_down"] >= C.LEAK_ALARM_AUC)]
     return {"arms": arms, "per_symbol": per_symbol, **{k: pd.DataFrame(v) for k, v in rows.items()},
             "leak_alarms": leak.reset_index(drop=True), "picks": pd.DataFrame(picks).reindex(columns=["h", "fold", *GROUPS])}
@@ -236,6 +250,13 @@ def write_report(run_dir, out=C.REPORTS / "mmf_dev_report.md"):
         "## R2: fusion so với nhánh đơn tốt nhất", "", _md(t["r2"], cmp_cols), "",
         "## R3: đóng góp từng nhánh (fusion_concat so với arm bỏ nhánh)", "", _md(t["r3"], cmp_cols), "",
         *(["Chênh lệch dương là arm bỏ nhánh tốt hơn fusion_concat. Cột verdict giữ thang đặt trước và không đổi.", "", *notes, ""] if notes else []),
+        *([] if t["r4"].empty else [
+            "## R4: v2 so với v1", "",
+            "Ứng viên v2 (`model@variant`) được chọn theo log-loss calib trong từng fold; chênh lệch là log-loss(v2) trừ log-loss(v1), âm là v2 tốt hơn.", "",
+            _md(t["r4"], ["so_sanh", *cmp_cols]), "",
+            "## Từng bước cải tiến", "",
+            "Mỗi dòng so một bước với bước liền trước trên cùng 15 mã: `@ext` thêm mã ngoài vào train, `@ext_ctx` thêm đặc trưng bối cảnh, `hurdle_*` là mô hình hai tầng.", "",
+            _md(t["ladder"], cmp_cols), "", *V2_NOTES, ""]),
         "## Cảnh báo rò rỉ", "",
         f"Macro-F1 >= {C.LEAK_ALARM_F1} hoặc AUC Tăng so với Giảm >= {C.LEAK_ALARM_AUC} trên toàn mẫu eval của (h, fold, arm).", "",
         _md(t["leak_alarms"], ["h", "fold", "arm", "n", "macro_f1", "auc_up_down"]), "",
@@ -285,15 +306,48 @@ def write_lock(run_dir, out=C.REPORTS / "mmf_lock.json"):
     return out
 
 
+def write_lock_v2(run_dir, out=C.REPORTS / "mmf_lock_v2.json"):
+    """Per h: the v2 candidate picked on calib in most folds, plus per-fold picks. Needs every candidate in every fold."""
+    names = [f.name for f in folds_from_config()]
+    if Path(out).exists():
+        raise ValueError(f"{out} exists: the lock is written once, move it away to write again")
+    if _h_dirs(run_dir) != sorted(C.HORIZONS):
+        raise ValueError(f"lock needs horizons {sorted(C.HORIZONS)}, run has {_h_dirs(run_dir)}")
+    missing = [f"h{h}/{f}/{a}" for h in C.HORIZONS for f in names for a in V2 if not list((Path(run_dir) / f"h{h}/{f}/{a}").glob("seed*.parquet"))]
+    if missing:
+        raise ValueError(f"v2 lock needs every candidate in every fold: {len(missing)} missing, e.g. {missing[:3]}")
+    preds = _all_preds(run_dir)
+    lock = {}
+    for h, ph in preds[preds["arm"].isin(V2)].groupby("h"):
+        picked = {f: pick(ph, f, V2) for f in names}
+        cal = ph[ph["block"] == "calib"]
+        ll = {a: float(np.mean([E.row_logloss(g["y_true"].to_numpy(), g[E.PROB_COLS].to_numpy()).mean() for _, g in gg.groupby("fold")]))
+              for a, gg in cal.groupby("arm")}
+        model = _most_picked(picked, ll)
+        kinds = Counter(ph[ph["arm"] == model].groupby("fold")["price_kind"].first())
+        ids, aux = set(ph["dataset_id"]), set(ph["aux_id"].astype(str))
+        if len(ids) != 1 or len(aux) != 1:
+            raise ValueError(f"h{h}: predictions from several datasets {sorted(ids)} or aux directories {sorted(aux)}")
+        lock[str(h)] = {"model": model, "price_kind": min(kinds, key=lambda k: (-kinds[k], C.PRICE_KINDS.index(k) if k in C.PRICE_KINDS else -1)),
+                        "aux_id": aux.pop(), "dataset_id": ids.pop(), "git_commit": _git_commit(),
+                        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "picks": picked}
+    out = Path(out); out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(lock, indent=2, ensure_ascii=False))
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run-dir", required=True)
     ap.add_argument("--out", default=C.REPORTS / "mmf_dev_report.md", help="report path")
     ap.add_argument("--lock", action="store_true", help="also write the lock file (needs every fold of every h)")
+    ap.add_argument("--lock-v2", action="store_true", help="also write the v2 lock file (needs every v2 candidate in every fold of every h)")
     a = ap.parse_args(argv)
     print(write_report(a.run_dir, a.out))
     if a.lock:
         print(write_lock(a.run_dir))
+    if a.lock_v2:
+        print(write_lock_v2(a.run_dir))
 
 
 if __name__ == "__main__":

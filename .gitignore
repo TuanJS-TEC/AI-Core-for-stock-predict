@@ -26,3 +26,4 @@ NLP_Module/data/live.lock
 NLP_Module/data/live.log
 vnstock-migration/
 ai_core.egg-info/
+Pipeline_V1.2/stock_ext

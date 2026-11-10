@@ -20,3 +20,13 @@ LEAK_ALARM_F1 = 0.50; LEAK_ALARM_AUC = 0.65
 COST = trading.COST
 DATA = paths.ROOT / "data/mmf"; REPORTS = paths.ROOT / "docs/reports"
 NLP_DB = paths.NEWS_HOME / "data/nlp.db"; BCTC_FILE = paths.NEWS_HOME / "data/bctc.parquet"
+# v2 variants: external training universe, VNINDEX
+EXT_DIR = paths.ROOT / "Pipeline_V1.2/stock_ext"; EXT_UNIVERSE = paths.ROOT / "Pipeline_V1.2/data/ext_universe.csv"
+INDEX = "VNINDEX"; EXT_MIN_SESSIONS = 500
+GLOBAL_FILE = paths.ROOT / "data/global/global.parquet"; GLOBAL_STALE_DAYS = 7; AUX = DATA / "aux"
+GLOBAL_SERIES = {"spx": "^GSPC", "vix": "^VIX", "brent": "BZ=F", "usdvnd": "VND=X"}
+# v2 variants: (train on external tickers too, add context features); models run per variant, written as name@variant
+VARIANTS = {"base": (False, False), "ext": (True, False), "ext_ctx": (True, True)}
+HURDLE = ("hurdle_logit_price", "hurdle_gbm_price")
+V2_BASELINES = {"base": HURDLE, "ext": ("logit_price", "gbm_price", *HURDLE), "ext_ctx": ("logit_price", "gbm_price", *HURDLE)}
+V2_DL = {"base": (), "ext": ("dl_price",), "ext_ctx": ("dl_price",)}

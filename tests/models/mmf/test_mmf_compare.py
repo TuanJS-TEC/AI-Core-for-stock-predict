@@ -141,6 +141,72 @@ def test_lock_refuses_missing_horizon_seed_or_existing_file(tmp_path):
         C.write_lock(d, lock)
 
 
+def split(arm, fold, calib, ev):
+    """Fake preds whose calib and eval quality differ."""
+    return pd.concat([fake(arm, fold, calib).query("block == 'calib'"), fake(arm, fold, ev).query("block == 'eval'")])
+
+
+def test_v2_names():
+    assert len(C.V2) == 12 and len(set(C.V2)) == 12 and len(C.LADDER) == 10
+    assert all(n in C.V2 or n in MC.BASELINES or n == "dl_price" for pair in C.LADDER for n in pair)
+    assert all(a in C.V2 for a, _ in C.LADDER)
+
+
+def test_tables_without_v2_arms_are_unchanged():
+    t = C.tables(pd.concat([fake(a, f, 0.5) for a in ALL_ARMS for f in "ABC"]))
+    assert t["r4"].empty and t["ladder"].empty and len(t["r1"]) == 1 and len(t["r3"]) == 3
+
+
+def test_r4_picks_v2_by_calib_and_compares_on_eval():
+    v1 = [fake(a, f, 0.5) for a in ALL_ARMS for f in "ABC"]
+    v2 = [split("gbm_price@ext", f, 2.0, 0.0) for f in "ABC"] + [split("logit_price@ext", f, 0.0, 2.0) for f in "ABC"]
+    r4 = C.tables(pd.concat(v1 + v2))["r4"]
+    assert list(r4["so_sanh"]) == ["v2 so với baseline", "v2 so với dl_price"]
+    assert (r4["a"] == "A=gbm_price@ext B=gbm_price@ext C=gbm_price@ext").all()      # picked on calib
+    assert (r4["mean"] > 0).all() and (r4["n_folds"] == 3).all()                      # and it loses on eval
+    assert r4["b"].iloc[1] == "A=dl_price B=dl_price C=dl_price"
+
+
+def test_ladder_row_missing_arm_gives_not_enough():
+    p = [fake("dl_price", f, 0.5) for f in "ABC"] + [fake("dl_price@ext", f, 0.5) for f in "AC"]
+    lad = C.tables(pd.concat(p))["ladder"]
+    assert len(lad) == 10
+    row = lad[(lad["a"].str.contains("dl_price@ext ")) & lad["b"].str.contains("=dl_price ")].iloc[0]
+    assert row["verdict"] == C.NOT_ENOUGH and row["skipped"] == "B" and row["n_folds"] == 2
+
+
+def _v2_run(tmp_path, folds="ABC"):
+    d = _full(tmp_path, **{"gbm_price@ext": 3.0})
+    for h in MC.HORIZONS:
+        for f in folds:
+            for a in C.V2:
+                p = d / f"h{h}/{f}/{a}/seed0.parquet"
+                p.parent.mkdir(parents=True, exist_ok=True)
+                fake(a, f, 3.0 if a == "gbm_price@ext" else 0.5, h=h).assign(aux_id="aux1", price_kind="gru" if a.startswith("dl_") else "none").to_parquet(p, index=False)
+    return d
+
+
+def test_write_lock_v2_records_the_most_picked_candidate(tmp_path):
+    d = _v2_run(tmp_path)
+    lock = json.loads(C.write_lock_v2(d, tmp_path / "v2.json").read_text())
+    assert set(lock) == {str(h) for h in MC.HORIZONS}
+    e = lock["5"]
+    assert e["model"] == "gbm_price@ext" and e["price_kind"] == "none" and e["aux_id"] == "aux1" and e["dataset_id"] == "ds"
+    assert e["picks"] == dict.fromkeys("ABC", "gbm_price@ext")
+    out = C.write_report(d, tmp_path / "r.md").read_text()
+    assert "## R4: v2 so với v1" in out and "## Từng bước cải tiến" in out and "thiên lệch sống sót" in out
+
+
+def test_write_lock_v2_refuses_overwrite_and_missing_fold(tmp_path):
+    d = _v2_run(tmp_path)
+    lock = C.write_lock_v2(d, tmp_path / "v2.json")
+    with pytest.raises(ValueError, match="exists"):
+        C.write_lock_v2(d, lock)
+    (d / "h2/B/dl_price@ext_ctx/seed0.parquet").unlink()
+    with pytest.raises(ValueError, match="missing"):
+        C.write_lock_v2(d, tmp_path / "other.json")
+
+
 def test_r3_says_when_removing_a_branch_made_fusion_better():
     r3 = pd.DataFrame([{"h": 5, "b": "A=no_text B=no_text C=no_text", "mean": 0.0082, "lo": 0.0037, "hi": 0.0121, "fold_wins": 0, "n_folds": 3},
                        {"h": 2, "b": "A=no_text B=no_text C=no_text", "mean": 0.0017, "lo": -0.0005, "hi": 0.0037, "fold_wins": 0, "n_folds": 3},

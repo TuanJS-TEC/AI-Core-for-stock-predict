@@ -1,5 +1,5 @@
 from ai_core.models.mmf import experiment as X, leak_check as L
-from test_mmf_experiment import FOLD, SYMS, fake_frame
+from .test_mmf_experiment import FOLD, SYMS, fake_frame
 
 
 def test_leak_check_scores_true_labels_then_each_permutation(tmp_path, monkeypatch):

@@ -1,6 +1,6 @@
 """Đọc dữ liệu giá đã đồng bộ (stock/*.parquet) thành Panel: trục ngày chung, OHLCV, lịch phiên, khoảng trống.
 
-Mọi mã phải có cùng dãy ngày, mỗi phiên một dòng (sync_stock_parquet.py bảo đảm). Panel không chứa gì về mô hình."""
+Mọi mã phải có cùng dãy ngày, mỗi phiên một dòng (ai_core/prices/sync.py bảo đảm). Panel không chứa gì về mô hình."""
 import json
 import warnings
 from dataclasses import dataclass
@@ -52,7 +52,7 @@ def check_aligned(raw: dict[str, pd.DataFrame]) -> pd.DatetimeIndex:
             raise ValueError(f"{t}: dãy ngày khác mã {first}, không gộp theo ngày được")
     dup = ref[ref.duplicated()]
     if len(dup):
-        raise ValueError(f"Ngày lặp {[str(d.date()) for d in dup]}; chạy `python sync_stock_parquet.py --no-fetch` "
+        raise ValueError(f"Ngày lặp {[str(d.date()) for d in dup]}; chạy `python jobs/sync_prices.py --no-fetch` "
                          "để làm sạch trước")
     return ref
 

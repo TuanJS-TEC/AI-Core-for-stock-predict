@@ -1,7 +1,7 @@
 """Đối chiếu giá đã lưu (nguồn KBS) với TCBS Open API. Chỉ đọc stock/, không bao giờ ghi vào đó.
 
-  ~/.venv_6x/bin/python crosscheck_tcbs.py            mọi mã có trong stock/
-  ~/.venv_6x/bin/python crosscheck_tcbs.py ACB FPT    một vài mã
+  ~/.venv_6x/bin/python jobs/crosscheck_tcbs.py            mọi mã có trong stock/
+  ~/.venv_6x/bin/python jobs/crosscheck_tcbs.py ACB FPT    một vài mã
 
 Mỗi mã: tải C.SYNC_OVERLAP_SESSIONS phiên gần nhất từ TCBS, so với parquet trong cùng khoảng ngày. Ghi nối thêm vào
 C.CROSSCHECK_FILE mỗi chỗ lệch: giá quá C.SYNC_BASIS_TOL, khối lượng lệch tương đối quá C.CROSSCHECK_VOL_TOL, phiên có

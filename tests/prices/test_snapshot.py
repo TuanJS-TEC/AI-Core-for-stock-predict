@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import sync_stock_parquet as sync
+import ai_core.prices.sync as sync
 from ai_core.prices import config as C
 from ai_core.prices import snapshot as S
 from ai_core.prices.data import build_panel, load_raw

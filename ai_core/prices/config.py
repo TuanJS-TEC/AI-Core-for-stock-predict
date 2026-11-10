@@ -66,7 +66,7 @@ SESSION_DATA_READY = "15:00"                # giờ máy: từ giờ này phiên
 HOLIDAYS_FILE = ROOT / "data" / "hose_holidays.csv"   # ngày nghỉ HOSE (cột date,verified); hợp với MARKET_HOLIDAYS
 
 # =====================================================================================================
-# 5. Đồng bộ dữ liệu từ vnstock (sync_stock_parquet.py, chạy riêng)
+# 5. Đồng bộ dữ liệu từ vnstock (ai_core/prices/sync.py, chạy riêng)
 # =====================================================================================================
 SYNC_INTERVAL = "1D"                        # dữ liệu theo phiên
 SYNC_MAX_RETRIES = 3                        # số lần thử lại khi gọi API lỗi

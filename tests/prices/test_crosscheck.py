@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import crosscheck_tcbs as X
+import ai_core.prices.crosscheck as X
 from ai_core.prices import config as C
 
 DAYS = pd.bdate_range("2026-10-01", periods=10)

@@ -8,9 +8,9 @@ theo ngày. Trước đây lọc trùng theo thời điểm gốc nên phiên vn
 của cùng một ngày cùng tồn tại (ví dụ 2026-10-16 bị lặp trong parquet của cả 15 mã).
 Vì dữ liệu được cập nhật thường xuyên, số dòng và mốc train/val/test (split_sizes) thay đổi theo dữ liệu.
 
-Dùng: python sync_stock_parquet.py              # lấy dữ liệu mới từ vnstock, chuẩn hóa, ghi parquet và CSV
-      python sync_stock_parquet.py --init BID CTG  # mã mới: tải lịch sử từ C.SYNC_INIT_START rồi đồng bộ như thường
-      python sync_stock_parquet.py --no-fetch   # chỉ chuẩn hóa và lọc trùng dữ liệu đang có, không gọi API
+Dùng: python jobs/sync_prices.py              # lấy dữ liệu mới từ vnstock, chuẩn hóa, ghi parquet và CSV
+      python jobs/sync_prices.py --init BID CTG  # mã mới: tải lịch sử từ C.SYNC_INIT_START rồi đồng bộ như thường
+      python jobs/sync_prices.py --no-fetch   # chỉ chuẩn hóa và lọc trùng dữ liệu đang có, không gọi API
 """
 
 import os

@@ -154,10 +154,10 @@ def test_data_invalid_row_carries_no_signal():
 
 
 def test_board_constants_match_live():
-    """NLP_Module cannot import ai_core, so the board mirrors live's constants by hand: a drift must fail here."""
+    """The board imports live's version; the app's hard-coded NLP model must still match live's."""
     import re
-    from ai_core.news import board
+    from ai_core.fusion import board
     assert board.FUSION_VERSION == live.VERSION
-    app = (C.NLP / "app.py").read_text(encoding="utf-8")
+    app = (C.ROOT / "ai_core" / "fusion" / "app.py").read_text(encoding="utf-8")
     used = re.findall(r'snapshot_passages\(con, symbol, pd\.Timestamp\(cutoff\), "([^"]+)"\)', app)
     assert used == [live.NLP_MODEL]

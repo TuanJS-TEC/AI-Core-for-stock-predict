@@ -1,7 +1,7 @@
-"""Kiểm thử sync_stock_parquet.py: mỗi phiên đúng một dòng, không gọi vnstock khi --no-fetch."""
+"""Kiểm thử ai_core/prices/sync.py: mỗi phiên đúng một dòng, không gọi vnstock khi --no-fetch."""
 import pandas as pd
 
-import sync_stock_parquet as S
+import ai_core.prices.sync as S
 from ai_core.prices import config as C
 
 

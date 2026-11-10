@@ -8,7 +8,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from ai_core.models.mmf import config as C, experiment as EX, explain as X, recommend as R
 from ai_core.models.mmf.models import FusionNet
 from ai_core.models.mmf.windows import Samples
-from test_mmf_experiment import FOLD, SYMS, fake_frame
+from .test_mmf_experiment import FOLD, SYMS, fake_frame
 
 
 def _probs_from_fund_only(s):

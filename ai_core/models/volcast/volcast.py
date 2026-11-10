@@ -28,11 +28,11 @@ FEATS = ["ret1", "ret5", "ret20", "vol10", "vol20", "ma20", "range", "vz", "mret
 VERSION = "volcast-v2.2"   # v1 = price only; v2 adds BCTC; v2.1 = Wilson-bound gate + purge/seam/sort fixes;
 # v2.2 = v2.1 retrained 2026-11-10 after the numpy fix (2.2.6 -> 2.3.5): the v2.1 bundle had all BCTC features 0 because
 # numpy 2.2.6 on Python 3.14 corrupted pandas unstack labels; kept as data/models/volcast-v2.1-bctc0.joblib.
-BUNDLE = "data/models/volcast.joblib"
-REPORT = "data/reports/volcast_report.json"
+BUNDLE = str(paths.NEWS / "models/volcast.joblib")
+REPORT = str(paths.NEWS / "reports/volcast_report.json")
 HORIZONS = (2, 5)
 COLS = ["date", "symbol", "close", "high", "low", "volume"]
-STOCK_DIR = paths.PRICES_HOME / "stock"   # the one canonical price source (the sync keeps it current)
+STOCK_DIR = paths.PRICES   # the one canonical price source (the sync keeps it current)
 SYMBOLS = "ACB FPT GAS HPG MBB MSN MWG SSI STB TCB VCB VIC VNM VPB VRE".split()   # live set; new files in STOCK_DIR do not change it
 RET_BAND = 0.072   # exchange daily limit is 7% (+ price rounding); a bigger daily move means a corporate action or a calendar gap
 

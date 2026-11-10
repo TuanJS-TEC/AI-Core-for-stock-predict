@@ -1,5 +1,5 @@
 """Shadow report for the Step-5 decision: is the live board healthy, and does live volcast hold up out of sample?
-Run: `NLP_Module/.venv/bin/python -m ai_core.fusion.shadow >> docs/reports/shadow_report.md` (only after >= 40 sessions of
+Run: `.venv/bin/python -m ai_core.fusion.shadow >> docs/reports/shadow_report.md` (only after >= 40 sessions of
 live data; with fewer the text says so).
 Definitions (same as volcast.walk's test_acc):
 - call -> label: "strong" predicts y = 1 (the ticker's |forward return| over h sessions beats the day's cross-sectional
@@ -17,6 +17,9 @@ import json
 
 import pandas as pd
 
+from pathlib import Path
+
+from ai_core import paths
 from . import config as C
 from . import live
 from .prices import load_prices
@@ -25,7 +28,7 @@ from ai_core.models.volcast import fundamentals, volcast        # noqa: E402
 from ai_core.models.volcast import trial_forecast as tf         # noqa: E402
 
 MIN_SESSIONS = 40
-REPORT = C.NLP / volcast.REPORT                              # volcast.REPORT is relative to NLP_Module
+REPORT = Path(volcast.REPORT)
 
 
 def _no_bctc() -> pd.DataFrame:

@@ -16,6 +16,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from ai_core import paths
 from . import trial_forecast as tf
 from ai_core.news.contract import BACKTEST_DELAY
 from .walk_forward import FOLDS, PRICE, _split
@@ -85,7 +86,7 @@ def daily_feature(articles_with_pred, df):
     return out
 
 
-def load_articles(db="data/nlp.db", symbols=()):
+def load_articles(db=paths.NEWS / "nlp.db", symbols=()):
     c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)   # read-only
     a = pd.read_sql("""SELECT r.symbol, v.published_at, r.passage_text FROM article_company_result r
                        JOIN document_version v USING(document_version_id)
@@ -103,7 +104,7 @@ def _lr_auc(va, te, cols, h):
     return roc_auc_score(te[f"y{h}"], m.predict_proba(sc.transform(te[cols]))[:, 1])
 
 
-def run(target, prices_path="data/prices.csv", db="data/nlp.db"):
+def run(target, prices_path=paths.NEWS / "prices.csv", db=paths.NEWS / "nlp.db"):
     prices = tf.load_prices(prices_path)
     dates = pd.DatetimeIndex(sorted(prices.date.unique()))
     arts = load_articles(db, prices.symbol.unique())
@@ -157,9 +158,9 @@ def write_block(path, target, text):
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", required=True, choices=["absmove", "excess"])
-    ap.add_argument("--prices", default="data/prices.csv")
-    ap.add_argument("--db", default="data/nlp.db")
-    ap.add_argument("--out", default="data/reports/text_return_report.txt")
+    ap.add_argument("--prices", default=str(paths.NEWS / "prices.csv"))
+    ap.add_argument("--db", default=str(paths.NEWS / "nlp.db"))
+    ap.add_argument("--out", default=str(paths.NEWS / "reports/text_return_report.txt"))
     a = ap.parse_args(argv)
     t = time.time()
     out, n = run(a.target, a.prices, a.db)

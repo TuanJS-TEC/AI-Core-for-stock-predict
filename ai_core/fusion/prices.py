@@ -1,4 +1,4 @@
-"""One price loader for the fusion layer: Pipeline_V1.2's parquet files -> long frame (date, symbol, OHLCV).
+"""One price loader for the fusion layer: data/prices' parquet files -> long frame (date, symbol, OHLCV).
 `date` is the trading day (tz-naive midnight), the same key NLP's trial_forecast/walk_forward use."""
 import pandas as pd
 

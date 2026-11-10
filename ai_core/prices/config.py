@@ -10,8 +10,7 @@ from ai_core import paths
 # =====================================================================================================
 # 1. Dữ liệu đầu vào
 # =====================================================================================================
-ROOT = paths.PRICES_HOME
-STOCK_DIR = ROOT / "stock"                  # thư mục chứa {mã}_stock.parquet (và bản .csv để xem định dạng)
+STOCK_DIR = paths.PRICES                  # thư mục chứa {mã}_stock.parquet (và bản .csv để xem định dạng)
 STOCK_FILE = "{ticker}_stock.parquet"       # tên file dữ liệu của một mã
 STOCK_CSV_GLOB = "*_stock.csv"              # mẫu tên file CSV gốc dùng khi đồng bộ dữ liệu
 
@@ -63,7 +62,7 @@ CI_LEVEL = 0.95                             # mức tin cậy (percentile)
 MARKET_HOLIDAYS = ("2027-01-01",)
 MARKET_CALENDAR_UNTIL = "2027-01-31"        # đã khai báo đủ ngày nghỉ đến ngày này; ngày mục tiêu sau đó chỉ là dự kiến
 SESSION_DATA_READY = "15:00"                # giờ máy: từ giờ này phiên của hôm nay được coi là đã có dữ liệu để sync
-HOLIDAYS_FILE = ROOT / "data" / "hose_holidays.csv"   # ngày nghỉ HOSE (cột date,verified); hợp với MARKET_HOLIDAYS
+HOLIDAYS_FILE = paths.CONFIG / "hose_holidays.csv"   # ngày nghỉ HOSE (cột date,verified); hợp với MARKET_HOLIDAYS
 
 # =====================================================================================================
 # 5. Đồng bộ dữ liệu từ vnstock (ai_core/prices/sync.py, chạy riêng)
@@ -82,4 +81,4 @@ SESSION_HOUR_UTC = 7                        # mỗi phiên ghi đúng một mố
 # Đối chiếu với TCBS Open API (crosscheck_tcbs.py, chạy bằng ~/.venv_6x, không bao giờ ghi vào stock/)
 CROSSCHECK_SOURCE = "tcbs"                  # nguồn vnstock thế hệ 6; phiên mở bằng `vnstock auth tcbs` (Smart OTP, tối đa 24 giờ)
 CROSSCHECK_VOL_TOL = 0.02                   # lệch khối lượng tương đối quá mức này mới ghi; KBS và TCBS thường lệch 0.1-0.5%
-CROSSCHECK_FILE = ROOT / "outputs" / "crosscheck_tcbs.csv"   # mỗi lần chạy nối thêm các chỗ lệch
+CROSSCHECK_FILE = paths.DATA / "crosscheck_tcbs.csv"   # mỗi lần chạy nối thêm các chỗ lệch

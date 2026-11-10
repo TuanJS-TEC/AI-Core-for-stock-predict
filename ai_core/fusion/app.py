@@ -14,7 +14,7 @@ from ai_core.models.volcast import volcast
 from ai_core.news.text import normalize
 from ai_core.news.sentiment.base import LABELS, entropy as calc_entropy
 
-ROOT = paths.NEWS_HOME   # the news data home (data/nlp.db, data/reports, data/models)
+ROOT = paths.ROOT
 
 # ── constants ───────────────────────────────────────────────────────────────
 # NOT "Tăng"/"Giảm": the model judges the company's prospects in the passage, never the price direction
@@ -22,7 +22,7 @@ LABEL_VI = {"positive": "Tích cực", "neutral": "Trung tính", "negative": "Ti
 # diverging: blue (positive) <-> gray <-> red (negative); green/red is the classic colour-blind failure
 LABEL_COLOR = {"positive": "#2a78d6", "neutral": "#898781", "negative": "#e34948"}
 DIVERGING = [[0, "#e34948"], [0.5, "#d8d7d1"], [1, "#2a78d6"]]   # sentiment score -1 .. +1
-DATA_DIR = ROOT / "data"
+DATA_DIR = paths.NEWS
 MODEL_DIR = DATA_DIR / "models"
 
 # ── page config ─────────────────────────────────────────────────────────────
@@ -216,9 +216,9 @@ def db_snapshot_passages(symbol: str, cutoff: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def latest_price_date():
-    """Newest session in the live price parquet files (data/stock -> Pipeline_V1.2/stock); None if unreadable."""
+    """Newest session in the live price parquet files (data/prices); None if unreadable."""
     try:
-        ds = [pd.read_parquet(f, columns=["time"])["time"].max() for f in (DATA_DIR / "stock").glob("*_stock.parquet")]
+        ds = [pd.read_parquet(f, columns=["time"])["time"].max() for f in paths.PRICES.glob("*_stock.parquet")]
         return max(ds).tz_localize(None).normalize() if ds else None
     except Exception:
         return None
@@ -1297,7 +1297,7 @@ with tab_board:
     _fd = db_fusion_decision()
     if _fd.empty:
         st.info("Chưa có quyết định (bảng `fusion_decision` còn rỗng). Chạy:\n\n"
-                "```\ncd .. && NLP_Module/.venv/bin/python -m ai_core.fusion.live\n```")
+                "```\n.venv/bin/python -m ai_core.fusion.live\n```")
     else:
         from ai_core.fusion.board import mark_stale
         _pd = latest_price_date()

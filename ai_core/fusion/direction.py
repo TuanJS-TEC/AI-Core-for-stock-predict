@@ -12,11 +12,12 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from ai_core import paths
 from . import config as C
 from . import splits
 from .prices import load_prices
 from ai_core.models.volcast import fundamentals, volcast  # noqa: E402
-from ai_core.prices import config as PC  # noqa: E402  (Pipeline_V1.2: bootstrap block/n/level)
+from ai_core.prices import config as PC  # noqa: E402  (ai_core.prices: bootstrap block/n/level)
 from ai_core.prices.stats import block_bootstrap_dates  # noqa: E402
 
 EXRET = ["exret1", "exret5", "exret20"]
@@ -40,7 +41,7 @@ def build_frame(h: int, prices: pd.DataFrame | None = None) -> pd.DataFrame:
     """prices: load_prices() output (the 20-ticker universe when None). Warm-up rows with NaN features are dropped,
     as volcast.walk does, since logit cannot take NaN."""
     prices = load_prices() if prices is None else prices
-    df = volcast.add_features(prices, fundamentals.bctc_features(C.NLP / "data/bctc.parquet"))
+    df = volcast.add_features(prices, fundamentals.bctc_features(paths.NEWS / "bctc.parquet"))
     for k in (1, 5, 20):
         df[f"exret{k}"] = df[f"ret{k}"] - df.groupby("date")[f"ret{k}"].transform("mean")
     return add_labels(df, h).dropna(subset=FEATS).reset_index(drop=True)
@@ -88,7 +89,7 @@ def select_on_val(tr, va, h, grid=GRID) -> dict:
 
 
 def boot_ci(daily, rng) -> tuple[float, float]:
-    """CI of the mean net excess per LONG trade: whole test dates resampled in blocks (Pipeline_V1.2 settings). daily
+    """CI of the mean net excess per LONG trade: whole test dates resampled in blocks (ai_core.prices settings). daily
     has one row per test date (s = summed net_ex of that day's trades, k = their count); concat folds' to pool."""
     s, k = daily.s.to_numpy(), daily.k.to_numpy()
     stats = [s[i].sum() / k[i].sum() for i in block_bootstrap_dates(daily.index.to_numpy(), PC.BOOTSTRAP_BLOCK,
@@ -144,7 +145,7 @@ def go(rows: list[dict], pooled_ci_lo: float) -> bool:
 
 
 REPORT = C.ROOT / "docs/reports/direction_report.md"
-E1_TABLE = C.PIPELINE / "outputs/results/pooled_embed_k0.43/final_table.csv"
+E1_TABLE = paths.DATA / "reference/pooled_embed_k0.43_final_table.csv"
 COLS = ["h", "fold", "model", "kind", "C", "m", "val_n", "n", "hit", "net", "net_ex", "ci_lo", "ci_hi", "rand_median",
         "turnover", "max_dd"]
 NAN = float("nan")
@@ -195,7 +196,7 @@ def main(frame=build_frame, report=REPORT, hs=C.HORIZONS):
         "machinery restricted to one kind (table only). net/net_ex = mean per LONG trade after COST; ci = 95% block "
         "bootstrap of net_ex; rand_median = random-same-count median of net (SEL rows' value is the GO input).\n",
         table.to_markdown(index=False, floatfmt=".4f"),
-        "\nE1 (Pipeline_V1.2 pooled_embed_k0.43, headline rows; split 70/15/15, dữ liệu trước khi sửa, không cùng "
+        "\nE1 (old price pipeline pooled_embed_k0.43, headline rows; split 70/15/15, dữ liệu trước khi sửa, không cùng "
         "fold; 15 tickers; classification metrics only, that file has no net-return columns):\n",
         e1_rows().to_markdown(index=False, floatfmt=".4f"),
         "\nGO/NO-GO (pre-registered rule above):\n", *lines, f"\n**Decision: {decision}**\n"])

@@ -13,6 +13,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
+from ai_core import paths
 from ai_core.news.contract import BACKTEST_DELAY
 from .trial_forecast import CLOSE_UTC
 
@@ -110,7 +111,7 @@ def annual(symbols, items=NP_CODES, statement="income_statement"):
                                   for x in ("HSX", "HNX")]))
 
 
-def bctc_features(path="data/bctc.parquet"):
+def bctc_features(path=paths.NEWS / "bctc.parquet"):
     """Audited annual statements (README: data/bctc.parquet) -> symbol, available_at, BCTC values, one row per fiscal
     year: after-tax-profit growth vs the prior year (over |prior| so a loss base keeps the sign), ROE, leverage
     (1 - equity/assets) and size (log total assets). Banks and non-banks file profit and equity under different codes."""

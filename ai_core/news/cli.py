@@ -3,6 +3,7 @@ import argparse
 import json
 from datetime import date, datetime, timedelta, timezone
 
+from ai_core import paths
 from . import annotate, evaluate, storage
 from .collect import collect
 from .entities import Linker, load_aliases
@@ -39,14 +40,14 @@ def main(argv=None):
         return p
 
     p = add("survey"); p.add_argument("source"); p.add_argument("start", type=d); p.add_argument("end", type=d)
-    p.add_argument("--out", default="data/coverage.csv")
+    p.add_argument("--out", default=str(paths.NEWS / "coverage.csv"))
     p = add("collect"); p.add_argument("source"); p.add_argument("start", type=d); p.add_argument("end", type=d)
     p.add_argument("--symbols", nargs="*"); p.add_argument("--limit", type=int); p.add_argument("--interval", type=float, default=1.0)
     p.add_argument("--no-prefilter", action="store_true", help="fetch every article (many more requests)")
     p = add("process"); p.add_argument("--model", default="lexicon"); p.add_argument("--abstain-entropy", type=float)
     p = add("snapshot"); p.add_argument("--model", default="lexicon"); p.add_argument("--mode", choices=["live", "backtest"], default="backtest")
     p.add_argument("--symbols", nargs="+", required=True); p.add_argument("--start", type=d, required=True)
-    p.add_argument("--end", type=d, required=True); p.add_argument("--out", default="data/snapshots.parquet")
+    p.add_argument("--end", type=d, required=True); p.add_argument("--out", default=str(paths.NEWS / "snapshots.parquet"))
     p = add("annotate-sample"); p.add_argument("--model", default="lexicon"); p.add_argument("-n", type=int, default=100)
     p.add_argument("--eval-after", required=True, help="YYYY-MM-DD: samples published on/after go to the frozen eval stream")
     p = add("challenge-sample", help="negative-class challenge set: model-negative or risk-flagged passages, stream 'challenge'")
@@ -56,10 +57,10 @@ def main(argv=None):
     p = add("annotate-export"); p.add_argument("path"); p.add_argument("--stream", choices=["dev", "eval", "challenge"])
     p = add("annotate-import"); p.add_argument("path"); p.add_argument("--annotator", required=True); p.add_argument("--guideline", default="v0")
     add("leak-check")
-    p = add("train-baseline"); p.add_argument("--out", default="data/models/baseline.joblib"); p.add_argument("--version", default="baseline-tfidf-lr-v1")
+    p = add("train-baseline"); p.add_argument("--out", default=str(paths.NEWS / "models/baseline.joblib")); p.add_argument("--version", default="baseline-tfidf-lr-v1")
     p.add_argument("--val-frac", type=float, default=0.0, help="hold out the last fraction by published_at (for calibration)")
     add("select-baseline", help="choose the v2 baseline config + prior on dev validation, write both bundles")
-    p = add("train-phobert"); p.add_argument("--out", default="data/models/phobert-v1"); p.add_argument("--epochs", type=int, default=5)
+    p = add("train-phobert"); p.add_argument("--out", default=str(paths.NEWS / "models/phobert-v1")); p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--val-frac", type=float, default=0.2)
     p = add("abstain", help="choose the abstention entropy threshold on dev validation; --apply sets `uncertain`")
     p.add_argument("--model", required=True); p.add_argument("--min-acc", type=float, default=0.8)
@@ -159,16 +160,16 @@ def main(argv=None):
         prior = fit_prior(probs, yv)
         before, after = evaluate.metrics(yv, probs), evaluate.metrics(yv, [tuple(p * q for p, q in zip(r, prior)) for r in probs])
         twin.prior = prior
-        Path("data/models").mkdir(parents=True, exist_ok=True)
-        twin.save("data/models/baseline-v2-cal.joblib")
-        train(X, y, "baseline-tfidf-lr-v2", f, w, C, prior).save("data/models/baseline-v2.joblib")
+        Path(paths.NEWS / "models").mkdir(parents=True, exist_ok=True)
+        twin.save(str(paths.NEWS / "models/baseline-v2-cal.joblib"))
+        train(X, y, "baseline-tfidf-lr-v2", f, w, C, prior).save(str(paths.NEWS / "models/baseline-v2.joblib"))
         out = [f"dev {len(X)} rows by published_at; train {len(tr)} / val {len(va)} (from {rows_[va[0]]['published_at'][:10]})",
                "grid (train 80%, val 20%, prior 1):", *rows, "",
                f"chosen: features={f} weights={w} C={C}  prior(pos,neu,neg)={prior}",
                f"val before prior: macro-F1 {before['macro_f1']:.4f}  recall {recalls(before)}",
                f"val after prior:  macro-F1 {after['macro_f1']:.4f}  recall {recalls(after)}"]
-        Path("data/reports").mkdir(parents=True, exist_ok=True)
-        Path("data/reports/baseline_v2_selection.txt").write_text("\n".join(out) + "\n")
+        Path(paths.NEWS / "reports").mkdir(parents=True, exist_ok=True)
+        Path(paths.NEWS / "reports/baseline_v2_selection.txt").write_text("\n".join(out) + "\n")
         print("\n".join(out[-3:]))
     elif a.cmd == "train-phobert":
         from .sentiment import phobert

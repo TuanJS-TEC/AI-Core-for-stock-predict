@@ -11,6 +11,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import StandardScaler
 
+from ai_core import paths
 from ai_core.news.contract import build_snapshot
 
 CLOSE_UTC = time(8, 0)   # HOSE close 15:00 Asia/Ho_Chi_Minh = 08:00 UTC; forecast_cutoff = close of day t
@@ -150,7 +151,7 @@ def main(argv=None):
     from . import fundamentals
     from ai_core.news.pipeline import load_results
     ap = argparse.ArgumentParser()
-    ap.add_argument("--prices", default="data/prices.csv")
+    ap.add_argument("--prices", default=str(paths.NEWS / "prices.csv"))
     ap.add_argument("--model-version", default="baseline-tfidf-lr-v1")
     ap.add_argument("--start", default="2021-10-21", help="first collected news day")
     ap.add_argument("--test-start", default="2025-09-17",
@@ -170,7 +171,7 @@ def main(argv=None):
     ap.add_argument("--build-prices", action="store_true", help="write --out from --stock-dir, report, and exit")
     from .volcast import STOCK_DIR   # late import: volcast imports this module at top level
     ap.add_argument("--stock-dir", default=str(STOCK_DIR))
-    ap.add_argument("--out", default="data/prices.csv")
+    ap.add_argument("--out", default=str(paths.NEWS / "prices.csv"))
     ap.add_argument("--symbols", nargs="*", default=UNIVERSE, help="tickers to build (default: UNIVERSE)")
     a = ap.parse_args(argv)
 

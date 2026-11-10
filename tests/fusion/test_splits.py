@@ -20,7 +20,7 @@ def test_frozen_fold_c_ends_before_test_end():
 
 
 def test_config_and_finhay_do_not_import_nlp_module():
-    """The 15:40 finhay cron is HTTP-only: it must not break on an NLP_Module import error or a checkout without it."""
+    """The 15:40 finhay cron is HTTP-only: it must not break on an ai_core.news import error."""
     code = ("import sys, ai_core.fusion.config, ai_core.fusion.finhay; "
             "bad = sorted(m for m in sys.modules if m.split('.')[0] in ('ai_core.news', 'sklearn')); "
             "assert not bad, bad")

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ai_core import paths
 
-JAR_DIR = paths.NEWS_HOME / "data" / "vncorenlp"
+JAR_DIR = paths.NEWS / "vncorenlp"
 _END = "ZZZENDZZZ"
 
 

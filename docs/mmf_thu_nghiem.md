@@ -1,11 +1,11 @@
 # Thử nghiệm nhanh với model `mmf`
 
-Chạy mọi lệnh từ gốc `AI_Core`, bằng `.venv_mmf/bin/python`. Dữ liệu đóng băng dùng cho vùng phát triển: `Pipeline_V1.2/stock/snapshots/24251acc1a5695bd`.
+Chạy mọi lệnh từ gốc `AI_Core`, bằng `.venv_mmf/bin/python`. Dữ liệu đóng băng dùng cho vùng phát triển: `data/prices/snapshots/24251acc1a5695bd`.
 
 ## Vòng lặp một thí nghiệm
 
 ```bash
-SNAP=Pipeline_V1.2/stock/snapshots/24251acc1a5695bd
+SNAP=data/prices/snapshots/24251acc1a5695bd
 # 1. Chạy: thư mục riêng data/mmf/exp/<tên>/, không đụng run đã khóa
 .venv_mmf/bin/python -m ai_core.models.mmf.experiment --name thu1 --stock-dir $SNAP --h 5 --arms dl_price fusion_concat no_text --seeds 2
 # 2. Báo cáo riêng, không ghi đè báo cáo chính
@@ -58,7 +58,7 @@ Báo cáo có thêm mục "R4: v2 so với v1" và "Từng bước cải tiến"
 Khi có `docs/reports/mmf_lock_v2.json`, `ai_core.models.mmf.holdout` chấm thêm model v2 đã khóa (R4) trong cùng lượt chạy và đòi `--aux-dir`. Dữ liệu phụ phải mới ngang dữ liệu giá, nên chạy đúng thứ tự:
 
 ```bash
-cd Pipeline_V1.2 && ../NLP_Module/.venv/bin/python sync_stock_parquet.py --stock-dir stock_ext --delay 4 && cd ..   # 85 mã ngoài
+~/.venv_6x/bin/python jobs/sync_prices.py --stock-dir data/prices_ext --delay 4   # 85 mã ngoài
 .venv_mmf/bin/python -m ai_core.models.mmf.aux index        # VNINDEX
 .venv_mmf/bin/python -m ai_core.models.mmf.globaldata       # S&P 500, VIX, Brent, USD/VND
 .venv_mmf/bin/python -m ai_core.models.mmf.aux freeze       # in ra đường dẫn aux

@@ -10,6 +10,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import StandardScaler
 
+from ai_core import paths
 from ai_core.news import annotate, storage
 from . import fundamentals
 from . import trial_forecast as tf
@@ -25,7 +26,7 @@ CS = [0.01, 0.1, 1.0, 10.0]
 RANK_COLS = {"none": [], "counts": tf.COUNTS, "all": tf.COUNTS + tf.SENT}   # cross-sectional de-drifting
 
 
-def nlp_model(c, name, val_start, test_start, out_root="data/models"):
+def nlp_model(c, name, val_start, test_start, out_root=paths.NEWS / "models"):
     """PhoBERT trained on dev labels before val_start, epoch chosen on dev labels in [val_start, test_start)."""
     from ai_core.news.sentiment import phobert
     X, y, rows = annotate.dataset(c, "dev")
@@ -82,7 +83,7 @@ def forecast_fold(ds, h, train_start, val_start, test_start, test_end, extras=No
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--prices", default="data/prices.csv")
+    ap.add_argument("--prices", default=str(paths.NEWS / "prices.csv"))
     ap.add_argument("--skip-nlp", action="store_true", help="reuse phobert-fold* results already in the DB")
     ap.add_argument("--target", default="direction", choices=["direction", "excess", "absmove"])
     ap.add_argument("--fund", action="store_true", help="add HOSE earnings-change features to the val search")

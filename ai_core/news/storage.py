@@ -9,9 +9,8 @@ from ai_core import paths
 from .connectors.base import ParsedDoc, content_hash, normalize_url
 from .text import normalize
 
-ROOT = paths.NEWS_HOME
-DB_PATH = ROOT / "data" / "nlp.db"
-RAW_DIR = ROOT / "data" / "raw"
+DB_PATH = paths.NEWS / "nlp.db"
+RAW_DIR = paths.NEWS / "raw"
 SCHEMA = Path(__file__).with_name("schema.sql")
 
 

@@ -5,7 +5,6 @@ import random
 
 from .dedup import jaccard, shingles
 from .risk import risk_flags
-from .storage import ROOT
 
 LABELS = {"positive", "neutral", "negative"}
 OTHER = {"unclear", "skip"}

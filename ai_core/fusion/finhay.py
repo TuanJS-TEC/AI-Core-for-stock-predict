@@ -19,10 +19,11 @@ from urllib.parse import urlencode
 
 import pandas as pd
 
+from ai_core import paths
 from . import config as C
 
 BASE = "https://api-v2.hayinsights.com/openapi/v1"
-OUT = C.ROOT / "data" / "finhay"
+OUT = paths.DATA / "finhay"
 log = logging.getLogger(__name__)
 
 

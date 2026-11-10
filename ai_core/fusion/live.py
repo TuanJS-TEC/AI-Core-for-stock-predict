@@ -1,7 +1,7 @@
 """Live board: one fusion_decision row per (symbol, h) for the symbol's newest session.
 
 Direction was NO-GO (Task 10), so the board only ever says NO_TRADE or DATA_INVALID; p_up/p_down/margin stay NULL.
-Run: `NLP_Module/.venv/bin/python -m ai_core.fusion.live` (after the 15:20 price sync).
+Run: `.venv/bin/python -m ai_core.fusion.live` (after the 15:20 price sync).
 Write rules (primary key = symbol, base_date, h, version):
 - NO_TRADE and SEAM rows use INSERT OR REPLACE: they describe the data of that base_date itself, so a rerun
   may legitimately refresh them.

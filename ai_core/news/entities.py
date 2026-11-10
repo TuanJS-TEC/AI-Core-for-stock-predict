@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ai_core import paths
 
-COMPANIES_CSV = paths.NEWS_HOME / "data" / "companies.csv"
+COMPANIES_CSV = paths.CONFIG / "companies.csv"
 # Symbols that are also ordinary words/places/currency: need "cổ phiếu/mã/CP" right before them.
 LIST_ARTICLE_MIN = 4      # articles linking >= this many companies are treated as market-level
 AMBIGUOUS_SYMBOLS = {"VND", "HCM", "GAS"}

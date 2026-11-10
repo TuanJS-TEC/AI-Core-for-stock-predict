@@ -1025,7 +1025,7 @@ không phải tỷ lệ đúng. Với 7 mã so được, chênh lệch vài ph�
         cmp_df, read_at = latest_cmp(ver_p, tuple(syms_p))
         if read_at is not None and not cmp_df.empty:
             st.caption(f"Bản đọc giá đã lưu lúc **{read_at.tz_convert('Asia/Ho_Chi_Minh'):%d/%m %H:%M}** "
-                       "(cron `scripts/live_update.sh`, 15 phút/lần trong giờ giao dịch). "
+                       "(cron `jobs/live_update.sh`, 15 phút/lần trong giờ giao dịch). "
                        "Sentiment tính tới hiện tại.")
     if cmp_df.empty:
         st.info("Chưa có bản đọc giá nào cho các mã đã chọn — bấm **Lấy giá SSI ngay**.")
@@ -1287,7 +1287,7 @@ with tab_3d:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# DECISION BOARD (reads fusion_decision; writing is `python -m ai_core.live`, from live_update.sh at 15:00-16:00)
+# DECISION BOARD (reads fusion_decision; writing is `python -m ai_core.fusion.live`, from live_update.sh at 15:00-16:00)
 # ════════════════════════════════════════════════════════════════════════════
 with tab_board:
     import json

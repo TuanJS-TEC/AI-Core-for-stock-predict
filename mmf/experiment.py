@@ -225,8 +225,14 @@ def main(argv=None):
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--smoke", action="store_true", help="1 epoch, 1 seed, first fold, under C.DATA/smoke")
     mode.add_argument("--shuffle-labels", action="store_true", help="leak check: train labels shuffled, fold C, 1 seed, under C.DATA/shuffle")
+    mode.add_argument("--name", help="free experiment under C.DATA/exp/NAME, kept apart from the locked run")
+    ap.add_argument("--arms", nargs="+", choices=list(C.ARMS), help="DL arms to train (baselines always run)")
+    ap.add_argument("--seeds", type=int, choices=range(1, len(C.SEEDS) + 1), help="first N seeds")
     a = ap.parse_args(argv)
     kind, names, kw = "runs", a.folds, {}
+    if a.name:
+        kind = f"exp/{a.name}"
+    kw.update({k: v for k, v in (("arms", a.arms), ("seeds", a.seeds and C.SEEDS[:a.seeds])) if v})
     if a.smoke:
         kind, names, kw = "smoke", a.folds[:1], {"max_epochs": 1, "seeds": (59,)}
     elif a.shuffle_labels:

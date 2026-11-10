@@ -248,6 +248,8 @@ def test_failed_write_leaves_no_file(tmp_path):
     (["--h", "2", "--folds", "B", "C"], "runs", ["B", "C"], {}),
     (["--smoke"], "smoke", ["A"], {"max_epochs": 1, "seeds": (59,)}),
     (["--shuffle-labels", "--h", "5"], "shuffle", ["C"], {"seeds": (59,)}),
+    (["--name", "try1", "--arms", "dl_price", "no_text", "--seeds", "2"], "exp/try1", ["A", "B", "C"],
+     {"arms": ["dl_price", "no_text"], "seeds": (59, 60)}),
 ])
 def test_cli_modes(monkeypatch, argv, kind, folds, kwargs):
     got = {}

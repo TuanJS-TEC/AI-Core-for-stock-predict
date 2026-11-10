@@ -272,18 +272,24 @@ def test_basis_changed_sees_open_high_low():
     assert not S.basis_changed(stored, stored)
 
 
-def test_quote_gets_explicit_source(monkeypatch):
-    kw = {}
+def test_market_gets_explicit_source(monkeypatch):
+    calls = []
 
-    class FakeQuote:
-        def __init__(self, **k):
-            kw.update(k)
+    class FakeMarket:
+        def __init__(self, source):
+            calls.append(("source", source))
 
-        def history(self, **k):
+        def equity(self, symbol):
+            calls.append(("symbol", symbol))
+            return self
+
+        def ohlcv(self, **k):
+            calls.append(("ohlcv", k))
             return pd.DataFrame()
-    monkeypatch.setattr(S, "Quote", FakeQuote)
+    monkeypatch.setattr(S, "Market", FakeMarket)
     S.fetch_latest_ohlcv("AAA", "2026-10-01", "2026-10-02")
-    assert kw == {"source": C.SYNC_SOURCE, "symbol": "AAA"}
+    assert calls == [("source", C.SYNC_SOURCE), ("symbol", "AAA"),
+                     ("ohlcv", {"start": "2026-10-01", "end": "2026-10-02", "interval": C.SYNC_INTERVAL})]
 
 
 def test_overlap_start_is_20th_last_session():

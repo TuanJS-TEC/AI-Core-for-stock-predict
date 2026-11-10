@@ -15,6 +15,8 @@ Dependencies are one-way and enforced by `tests/test_architecture.py`: `prices` 
 
 Data stays in its old homes: `Pipeline_V1.2/stock` (prices), `NLP_Module/data` (nlp.db, models, tessdata), `data/` (finhay, mmf). Run news commands from `NLP_Module/`, everything else from the repo root.
 
+Price sync (`jobs/sync_prices.py`, cron 15:20) runs on `~/.venv_6x` (vnstock generation 6, source tcbs, preview build valid until 2026-12-07) with `PYTHONPATH=<repo root>`; tcbs needs `vnstock auth tcbs` (Smart OTP) before each run, otherwise no new prices are fetched.
+
 Tests (two venvs; expected 201 + 196 passed):
 ```
 NLP_Module/.venv/bin/python -m pytest -q tests/prices tests/news tests/models/volcast tests/fusion/test_board.py

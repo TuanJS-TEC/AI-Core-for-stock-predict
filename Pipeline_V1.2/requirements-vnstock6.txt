@@ -1,0 +1,8 @@
+# Environment for jobs/sync_prices.py (ai_core/prices/sync.py) only: ~/.venv_6x (python3 -m venv ~/.venv_6x).
+# Preview releases need exact pins and run 30 days from their build (update the numbers from
+# https://vnstocks.com/docs/vnstock/v6/cai-dat; the install log of 2026-11-09 offered vnstock 6.0.0rc5 / vnstock-oapi 0.1.0rc4).
+--extra-index-url https://vnstocks.com/api/packages
+vnstock==6.0.0rc4
+vnstock-oapi==0.1.0rc3
+pandas>=2.0
+pyarrow==26.0.0

@@ -36,10 +36,10 @@ logger = logging.getLogger(__name__)
 
 # Thử import vnstock
 try:
-    from vnstock import Quote
+    from vnstock import Market
 except ImportError:
-    logger.error("Không tìm thấy thư viện vnstock! Vui lòng cài đặt: pip install vnstock")
-    Quote = None
+    logger.error("Không tìm thấy vnstock thế hệ 6! Cài trong ~/.venv_6x (xem requirements-vnstock6.txt)")
+    Market = None
 
 def wall_clock(s: pd.Series) -> pd.Series:
     """Thời gian không múi giờ, giữ giờ trên đồng hồ của từng giá trị.
@@ -104,14 +104,13 @@ def fetch_latest_ohlcv(symbol: str, start_date: str, end_date: str, max_retries:
     Lấy dữ liệu OHLCV từ thư viện vnstock cho một mã chứng khoán trong khoảng [start_date, end_date].
     Hỗ trợ cơ chế retry khi gặp sự cố mạng hoặc giới hạn API.
     """
-    if Quote is None:
+    if Market is None:
         logger.warning(f"Bỏ qua lấy dữ liệu vnstock cho {symbol} do chưa cài đặt thư viện.")
         return pd.DataFrame()
 
     for attempt in range(1, max_retries + 1):
         try:
-            quote = Quote(source=C.SYNC_SOURCE, symbol=symbol)
-            df = quote.history(start=start_date, end=end_date, interval=C.SYNC_INTERVAL)
+            df = Market(C.SYNC_SOURCE).equity(symbol).ohlcv(start=start_date, end=end_date, interval=C.SYNC_INTERVAL)
             if df is not None and not df.empty:
                 return drop_open_session(df, pd.Timestamp.now(tz=VN_TZ))
             else:

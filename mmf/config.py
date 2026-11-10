@@ -19,3 +19,8 @@ BASELINES = ("prior_fixed", "prior_adaptive", "logit_price", "gbm_price", "logit
 LEAK_ALARM_F1 = 0.50; LEAK_ALARM_AUC = 0.65
 DATA = AC.ROOT / "data/mmf"; REPORTS = AC.ROOT / "docs/reports"
 NLP_DB = AC.NLP / "data/nlp.db"; BCTC_FILE = AC.NLP / "data/bctc.parquet"
+# v2 variants: external training universe, VNINDEX
+EXT_DIR = AC.ROOT / "Pipeline_V1.2/stock_ext"; EXT_UNIVERSE = AC.ROOT / "Pipeline_V1.2/data/ext_universe.csv"
+INDEX = "VNINDEX"; EXT_MIN_SESSIONS = 500
+GLOBAL_FILE = AC.ROOT / "data/global/global.parquet"; GLOBAL_STALE_DAYS = 7; AUX = DATA / "aux"
+GLOBAL_SERIES = {"spx": "^GSPC", "vix": "^VIX", "brent": "BZ=F", "usdvnd": "VND=X"}

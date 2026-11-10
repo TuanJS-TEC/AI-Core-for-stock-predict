@@ -106,7 +106,6 @@ def test_ext_train_labels_are_purged(bundles):
 
 
 def run(tmp_path, b, mp):
-    mp.setitem(C.V2_BASELINES, "ext", ("logit_price", "gbm_price"))
     mp.setattr(C, "PRICE_KINDS", ("gru",))
     mp.setattr(C, "SELECT_SEEDS", (59,))
     X.run_variants(None, None, (H,), [b.fold], tmp_path, "cpu", variants=("ext",), seeds=(59,), max_epochs=1, build=lambda *a: b)
@@ -116,7 +115,7 @@ def test_out_name_and_paths(tmp_path, bundles, monkeypatch):
     run(tmp_path, bundles["ext"], monkeypatch)
     base = tmp_path / f"h{H}" / "C"
     assert (base / "select@ext.json").exists() and not (base / "select.json").exists()
-    for name, seed in (("logit_price", 0), ("gbm_price", 0), ("dl_price", 59)):
+    for name, seed in (("logit_price", 0), ("gbm_price", 0), ("hurdle_logit_price", 0), ("hurdle_gbm_price", 0), ("dl_price", 59)):
         d = pd.read_parquet(base / f"{name}@ext" / f"seed{seed}.parquet")
         assert set(d["arm"]) == {f"{name}@ext"} and set(d["aux_id"]) == {"test"}
         assert set(d["symbol"].astype(str)) <= set(PC.TICKERS)

@@ -51,18 +51,34 @@ def predict_baseline(name, blocks, scaled, frame, price_cols=None):
     """Probabilities (n, 3) for blocks 'calib' and 'eval', in the block row order. blocks: usable rows only.
 
     price_cols replaces the columns of the price group (the ctx variant adds the context features)."""
-    if name not in C.BASELINES:
+    if name not in C.BASELINES and name not in C.HURDLE:
         raise ValueError(f"unknown baseline {name!r}")
     outs = ("calib", "eval")
     if name == "prior_fixed":
         return {k: _prior_fixed(blocks["train"], blocks[k]) for k in outs}
     if name == "prior_adaptive":
         return {k: _prior_adaptive(frame, blocks[k]) for k in outs}
-    kind, group = name.split("_")
+    kind, group = name.split("_")[-2:]
     cols = [c for g in SUFFIX[group] for c in (price_cols if g == "price" and price_cols is not None else GROUPS[g])]
     # ponytail: NaN -> 0 (the train mean after scaling) for the logit; GBM takes NaN natively
-    x = lambda k: scaled.loc[blocks[k].index, cols].to_numpy(float)
+    def x(k):
+        v = scaled.loc[blocks[k].index, cols].to_numpy(float)
+        return np.nan_to_num(v) if kind == "logit" else v
+
     xt, yt = x("train"), blocks["train"]["label"].to_numpy(dtype="float")
     ok = ~np.isnan(yt)
-    clf = _model(kind).fit(np.nan_to_num(xt[ok]) if kind == "logit" else xt[ok], yt[ok].astype(int))
-    return {k: _proba(clf, np.nan_to_num(x(k)) if kind == "logit" else x(k)) for k in outs}
+    xt, yt, xs = xt[ok], yt[ok].astype(int), {k: x(k) for k in outs}
+    if name in C.HURDLE:      # stage 1: does the price leave the flat band; stage 2, on the movers only: up or down
+        move = yt != 1
+        pm, pu = _stage(kind, xt, move, xs), _stage(kind, xt[move], yt[move] == 2, xs)
+        return {k: np.column_stack([pm[k] * (1 - pu[k]), 1 - pm[k], pm[k] * pu[k]]) for k in outs}
+    clf = _model(kind).fit(xt, yt)
+    return {k: _proba(clf, xs[k]) for k in outs}
+
+
+def _stage(kind, x, target, xs):
+    """P(target) per block from a binary model of the hurdle; a stage that sees one class returns its Laplace frequency."""
+    if len(set(target)) < 2:
+        return {k: np.full(len(v), (target.sum() + 1) / (len(target) + 2)) for k, v in xs.items()}
+    clf = _model(kind).fit(x, target)
+    return {k: clf.predict_proba(v)[:, 1] for k, v in xs.items()}

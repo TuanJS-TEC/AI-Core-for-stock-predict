@@ -2,7 +2,7 @@
 # Live loop: new news -> both production models -> SSI board (trading hours only). Meant for cron every 15 min.
 # Each step is incremental (collect skips stored URLs, process skips scored versions), so a rerun is cheap.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../NLP_Module"   # the news data home: data/ paths below are relative to it
 exec 9>data/live.lock
 flock -n 9 || { echo "$(date -Is) previous run still going, skip"; exit 0; }
 export TZ=Asia/Ho_Chi_Minh

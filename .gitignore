@@ -14,3 +14,4 @@ data/mmf/
 data/crosscheck_tcbs.csv
 ai_core.egg-info/
 vnstock-migration/
+data/reference/

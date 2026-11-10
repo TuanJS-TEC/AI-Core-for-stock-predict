@@ -1,5 +1,5 @@
 """Constants for the multimodal trend forecast (price + financials + news sentiment, T+2 and T+5)."""
-from ai_core.fusion import config as AC
+from ai_core import paths, trading
 import ai_core.prices.config
 
 TICKERS = ai_core.prices.config.TICKERS; HORIZONS = (2, 5); START = "2022-01-01"
@@ -17,5 +17,6 @@ ARMS = {"dl_price": (("price",), "none"), "dl_fund": (("fund",), "none"), "dl_te
         "no_price": (("fund", "text"), "concat"), "no_fund": (("price", "text"), "concat"), "no_text": (("price", "fund"), "concat")}
 BASELINES = ("prior_fixed", "prior_adaptive", "logit_price", "gbm_price", "logit_text", "gbm_text", "logit_all", "gbm_all")
 LEAK_ALARM_F1 = 0.50; LEAK_ALARM_AUC = 0.65
-DATA = AC.ROOT / "data/mmf"; REPORTS = AC.ROOT / "docs/reports"
-NLP_DB = AC.NLP / "data/nlp.db"; BCTC_FILE = AC.NLP / "data/bctc.parquet"
+COST = trading.COST
+DATA = paths.ROOT / "data/mmf"; REPORTS = paths.ROOT / "docs/reports"
+NLP_DB = paths.NEWS_HOME / "data/nlp.db"; BCTC_FILE = paths.NEWS_HOME / "data/bctc.parquet"

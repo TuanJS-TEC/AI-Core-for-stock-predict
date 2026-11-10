@@ -9,14 +9,14 @@ from ai_core.prices.stats import block_bootstrap_dates
 RULES = ("Ưu tiên mua", "Tránh", "Không đủ tin cậy")
 
 
-def trade_return(frame, h, cost=C.AC.COST):
+def trade_return(frame, h, cost=C.COST):
     """log(close[t+h+1] / open[t+1]) - cost per symbol, on the frame's index; NaN when the bars do not exist yet."""
     f = frame.sort_values("as_of_session")
     g = f.groupby(f["symbol"].astype(str))
     return (np.log(g["close"].shift(-(h + 1)) / g["open"].shift(-1)) - cost).reindex(frame.index)
 
 
-def with_net_ret(rows, frame, h, block_end, cost=C.AC.COST):
+def with_net_ret(rows, frame, h, block_end, cost=C.COST):
     """`rows` of one block plus net_ret, from prices up to block_end only.
 
     The exit t+h+1 is one session later than the label's t+h, so the block's last rows would read the next block.

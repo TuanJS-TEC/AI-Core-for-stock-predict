@@ -9,5 +9,5 @@ UNIVERSE = "ACB BID CTG FPT GAS HDB HPG MBB MSN MWG NVL SSI STB TCB VCB VHM VIC 
 HORIZONS = (2, 5)
 
 TEST_END = "2026-10-30"                        # pre-registered: fold C's test window ends here, frozen before any fusion result
-COST, KAPPA = 0.0045, 0.5
+from ai_core.trading import COST, KAPPA   # noqa: F401  (shared with ai_core.models.mmf)
 # FOLDS lives in ai_core.fusion.splits: importing ai_core.news here would drag NLP's import graph into the HTTP-only finhay cron

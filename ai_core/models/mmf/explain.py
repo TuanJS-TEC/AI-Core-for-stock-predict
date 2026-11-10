@@ -297,7 +297,7 @@ def write_report(run_dir, lock_path, build, out=C.REPORTS / "mmf_explain.md", fi
         "**Đây là vùng phát triển, chưa phải kết quả cuối.** Khối eval của fold A, B, C đã bị nhìn trong các thí nghiệm trước. "
         "Mọi đo lường ở đây dùng hàng eval; không có gì được fit trên eval: nhiệt độ và ngưỡng `m` từ calib, nền SHAP, phân phối LIME và `gbm_all` từ train.", "",
         f"**Giả định chưa xác nhận:** lợi suất tính theo thanh toán T+2 và không bán khống, chủ dự án chưa xác nhận giả định này. "
-        f"Lệnh chỉ LONG, mua ở giá mở cửa t+1, bán ở giá đóng cửa t+h+1, trừ phí {C.AC.COST:.4f}. Không tính trượt giá, kẹt trần sàn, hay giới hạn vốn; các lệnh của phiên liền nhau chồng lấn thời gian.", "",
+        f"Lệnh chỉ LONG, mua ở giá mở cửa t+1, bán ở giá đóng cửa t+h+1, trừ phí {C.COST:.4f}. Không tính trượt giá, kẹt trần sàn, hay giới hạn vốn; các lệnh của phiên liền nhau chồng lấn thời gian.", "",
         f"Dataset: {', '.join(ids)}. Arm giải thích theo file khóa, dùng chung cho mọi fold của h: khóa là `stack` (không có trọng số) thì dùng `fusion_attention`.", "",
         pd.DataFrame(used).to_markdown(index=False), "",
         "## Kết luận theo h", "", *summary,

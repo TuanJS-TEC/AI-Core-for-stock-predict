@@ -99,7 +99,7 @@ def _markdown(path, b, entry, preds, cmp, early):
         "## Mọi arm, toàn mẫu", "", CP._md(t["arms"].drop(columns=["h", "fold"])), "",
         "## Luật khuyến nghị kèm độ phủ", "",
         f"**Giả định chưa xác nhận:** lợi suất tính theo thanh toán T+2 và không bán khống (chỉ LONG), chủ dự án chưa xác nhận giả định này. "
-        f"Mua ở giá mở cửa t+1, bán ở giá đóng cửa t+h+1, trừ phí {C.AC.COST:.4f}. Không tính trượt giá, kẹt trần sàn, hay giới hạn vốn; các lệnh của phiên liền nhau chồng lấn thời gian.", "",
+        f"Mua ở giá mở cửa t+1, bán ở giá đóng cửa t+h+1, trừ phí {C.COST:.4f}. Không tính trượt giá, kẹt trần sàn, hay giới hạn vốn; các lệnh của phiên liền nhau chồng lấn thời gian.", "",
         f"Fusion khóa `{fusion}`. `m` chọn trên calib; không có `m` đạt 50 lệnh thì không có lệnh, và `m` có trung bình calib âm thì luật vẫn giao dịch (xem `calib_mean_net`). "
         f"Hàng có phiên bán t+h+1 vượt dữ liệu bị bỏ. `coverage` là tỷ lệ hàng có lợi suất được gắn \"Ưu tiên mua\"; `toàn mẫu` là mua mọi hàng, để so sánh. `n` dưới khoảng 30 thì CI gần như không đọc được. CI 95% block bootstrap phiên, khối {C.HOLDOUT_BLOCK} phiên như phần so sánh.", "",
         CP._md(_simulations(preds, b, fusion), EXP.SIM_COLS), "",

@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from ai_core import paths
 from . import config as C
 from . import baselines as B, evaluate as E, train as TR
 from .frame import GROUPS, build_frame
@@ -84,7 +85,7 @@ def _atomic(path, write):
 
 @functools.lru_cache
 def _git_commit():
-    return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=C.AC.ROOT, text=True).strip()
+    return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=paths.ROOT, text=True).strip()
 
 
 def _prior_rows(b, block):

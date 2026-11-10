@@ -23,9 +23,9 @@ from .trial_forecast import CLOSE_UTC
 from .walk_forward import FOLDS, _split
 
 FEATS = ["ret1", "ret5", "ret20", "vol10", "vol20", "ma20", "range", "vz", "mret1", "mret5"] + fundamentals.BCTC
-VERSION = "volcast-v2.1"   # v1 = price only; v2 adds BCTC; v2.1 = Wilson-bound gate + purge/seam/sort fixes
-# NOTE 2026-10-30: the bundle retrained 2026-10-30 09:52 has all BCTC features 0 (pandas pivot bug in this env),
-# so it is effectively price-only; see docs/model_report.md, volcast Limitations.
+VERSION = "volcast-v2.2"   # v1 = price only; v2 adds BCTC; v2.1 = Wilson-bound gate + purge/seam/sort fixes;
+# v2.2 = v2.1 retrained 2026-11-10 after the numpy fix (2.2.6 -> 2.3.5): the v2.1 bundle had all BCTC features 0 because
+# numpy 2.2.6 on Python 3.14 corrupted pandas unstack labels; kept as data/models/volcast-v2.1-bctc0.joblib.
 BUNDLE = "data/models/volcast.joblib"
 REPORT = "data/reports/volcast_report.json"
 HORIZONS = (2, 5)

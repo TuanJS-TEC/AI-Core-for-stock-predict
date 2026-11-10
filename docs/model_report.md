@@ -951,3 +951,24 @@ MBB 0.500 (12) / -; MSN 0.250 (4) / 0.579 (38); MWG 0.333 (3) / -; SSI 0.667 (9)
 TCB 0.500 (2) / 0.448 (29); VCB 0.625 (8) / 0.643 (56); VIC - / -; VNM 0.333 (3) / -; VPB 0.644 (45) / -;
 VRE 0.600 (5) / 0.556 (27). With BCTC all zero this is leave-one-ticker-out for a price-only model; most counts are
 tiny, so no per-ticker reading.
+
+### volcast-v2.2 (retrained 2026-11-10 after the numpy fix)
+Root cause of the BCTC-all-zero v2.1 bundle: numpy 2.2.6 (source-built for Python 3.14, which it does not support) let
+temporary elision overwrite a live array once it reached 256 KiB, so pandas `unstack`/`pivot_table` returned corrupted row
+labels and `fundamentals.annual_wide` kept 2 of 693 symbols. Fixed by numpy 2.3.5 in this venv (canary:
+`AI_Core/tests/test_env_numpy.py`); no code change in `fundamentals`. Retrained with `train --test-end 2026-10-30`;
+`has_bctc` is now 1 on 89.6% of rows (14 of 15 symbols; SSI is not in the dataset). The v2.1 bundle and report are kept
+as `data/models/volcast-v2.1-bctc0.joblib` and `data/reports/volcast_report-v2.1-bctc0.json`.
+
+| h | fold | v2.1 (BCTC 0): model, test_acc, n | v2.2: model, test_acc, n |
+|---|---|---|---|
+| 2 | A | logit 0.663, 202 | logit 0.637, 433 |
+| 2 | B | logit 0.706, 160 | none |
+| 2 | C | none | gbm 0.627, 442 |
+| 5 | A | none | logit 0.712, 431 |
+| 5 | B | none | gbm 0.702, 672 |
+| 5 | C | logit 0.582, 507 | gbm 0.605, 395 |
+
+The live bundle is fit on fold C's selection, so v2.2 now issues h=2 calls (v2.1 had none at h=2). The shadow report
+counts sessions per volcast version, so its 40-session count restarts for v2.2. The pre-registered BCTC check (Task 14)
+was not re-run here.

@@ -983,3 +983,22 @@ control by more than 0.01. Either way the live volcast (now `volcast-v2.2`) does
 Disclosed in advance: this entry is written after the v2.2 eval table above was seen (the `real` score uses the same walk),
 so it is not blind to `real`; the permutation side is not yet seen. Run once; output saved to
 `data/reports/volcast_bctc_check_v2.2.txt`.
+
+### BCTC check re-run result (run 2026-11-10, once; full output `data/reports/volcast_bctc_check_v2.2.txt`)
+
+`python -m nlp_module.forecast.volcast bctc-check --test-end 2026-10-30`, 15 symbols, n_perm=20, seed=0, numpy 2.3.5.
+
+| | real | perm mean | perm sd | perm min / max | cells with call (real) |
+|---|------|-----------|---------|----------------|------------------------|
+| h=2 (3 cells) | 0.5880 | 0.6000 | - | - | 2/3 |
+| h=5 (3 cells) | 0.6732 | 0.5921 | - | - | 3/3 |
+| 6 cells | **0.6306** | **0.5960** | 0.0401 | 0.5389 / 0.6840 | 5/6 |
+
+Rule applied mechanically: mean(perm) 0.5960 >= real - 0.01 = 0.6206 is false. **By the pre-registered rule, BCTC beats
+the permuted control by more than 0.01.**
+
+Reading, beyond the rule (descriptive, not part of it): the margin is weak. 5 of the 20 permutations score at or above
+`real` (0.6310, 0.6335, 0.6499, 0.6583, 0.6840), so `real` sits at about the 75th percentile of the null (≈ 0.9 sd above
+its mean). The gain is all at h=5. At h=2, `real` is below the permutation mean. Per the advance caveat, no p-value is
+claimed: this is weak evidence that BCTC carries information beyond a ticker code at T+5, and none at T+2. The live volcast
+(`volcast-v2.2`) does not change because of this check.

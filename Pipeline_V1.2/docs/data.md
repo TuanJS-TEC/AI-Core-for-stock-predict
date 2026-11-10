@@ -46,6 +46,10 @@ for f in folds_from_config():
 
 Cần nhớ khi đánh giá: số mẫu hiệu dụng nhỏ (nhãn chồng lấn, 15 mã cùng chịu yếu tố thị trường); chọn model bằng log-loss hoặc Brier skill so với prior thay vì Macro-F1; bootstrap theo khối ngày.
 
+## Đối chiếu với TCBS
+
+`crosscheck_tcbs.py` chạy bằng `~/.venv_6x` (vnstock thế hệ 6). Nó chỉ đọc `stock/`, so 20 phiên gần nhất của mọi mã với TCBS Open API, rồi ghi nối mọi chỗ lệch vào `outputs/crosscheck_tcbs.csv`. Một chỗ lệch là giá lệch quá `SYNC_BASIS_TOL`, khối lượng lệch quá 2%, thiếu phiên ở một bên, hoặc lỗi tải. Phiên TCBS sống tối đa 24 giờ và không tự gia hạn: mỗi ngày cần `~/.venv_6x/bin/vnstock auth tcbs` với Smart OTP từ app TCInvest. Ngày nào chưa mở phiên thì lượt đối chiếu chỉ ghi "skipped", sync KBS vẫn chạy bình thường.
+
 ## Việc còn mở
 
 - Đối chiếu 69 ngày nghỉ trong `data/hose_holidays.csv` với thông báo HOSE rồi đặt `verified=true`.

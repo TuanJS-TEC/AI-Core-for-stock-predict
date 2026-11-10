@@ -76,3 +76,8 @@ SYNC_INIT_START = "2021-01-04"              # ngày bắt đầu tải lịch s�
 SYNC_SOURCE = "kbs"                         # nguồn vnstock cho Quote(source=...); đã kiểm khớp parquet đã lưu, vci trả thêm phiên và giờ khác
 SYNC_OVERLAP_SESSIONS = 20                  # tải chồng ngần này phiên gần nhất để so với dữ liệu đã lưu
 SESSION_HOUR_UTC = 7                        # mỗi phiên ghi đúng một mốc: ngày + 07:00 UTC
+
+# Đối chiếu với TCBS Open API (crosscheck_tcbs.py, chạy bằng ~/.venv_6x, không bao giờ ghi vào stock/)
+CROSSCHECK_SOURCE = "tcbs"                  # nguồn vnstock thế hệ 6; phiên mở bằng `vnstock auth tcbs` (Smart OTP, tối đa 24 giờ)
+CROSSCHECK_VOL_TOL = 0.02                   # lệch khối lượng tương đối quá mức này mới ghi; KBS và TCBS thường lệch 0.1-0.5%
+CROSSCHECK_FILE = ROOT / "outputs" / "crosscheck_tcbs.csv"   # mỗi lần chạy nối thêm các chỗ lệch

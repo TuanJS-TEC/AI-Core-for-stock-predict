@@ -972,3 +972,14 @@ as `data/models/volcast-v2.1-bctc0.joblib` and `data/reports/volcast_report-v2.1
 The live bundle is fit on fold C's selection, so v2.2 now issues h=2 calls (v2.1 had none at h=2). The shadow report
 counts sessions per volcast version, so its 40-session count restarts for v2.2. The pre-registered BCTC check (Task 14)
 was not re-run here.
+
+## BCTC "ticker identity" check, re-run: pre-registered entry (written 2026-11-10T08:55:03+07:00, before the run)
+
+The 2026-10-30 result above was vacuous (BCTC all 0). This re-run uses the **same rule, aggregation, n_perm (20), seed (0),
+15 symbols, test window (`--test-end 2026-10-30`) and code (`volcast.bctc_check`)** as the entry written 2026-10-30 10:45:09,
+on the environment repaired 2026-11-10 (numpy 2.3.5; BCTC present for 14/15 symbols). Decision rule unchanged: if
+mean(perm over 20 runs) >= real - 0.01, conclude BCTC only encodes ticker identity; otherwise BCTC beats the permuted
+control by more than 0.01. Either way the live volcast (now `volcast-v2.2`) does not change because of this check.
+Disclosed in advance: this entry is written after the v2.2 eval table above was seen (the `real` score uses the same walk),
+so it is not blind to `real`; the permutation side is not yet seen. Run once; output saved to
+`data/reports/volcast_bctc_check_v2.2.txt`.

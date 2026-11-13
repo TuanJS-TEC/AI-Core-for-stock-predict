@@ -1,0 +1,6 @@
+pandas==3.0.6
+pyarrow==26.0.0
+numpy==2.5.4
+pytest==9.1.1
+# ai_core/prices/sync.py (jobs/sync_prices.py) uses vnstock generation 6, which lives in its own environment (~/.venv_6x):
+# see requirements-vnstock6.txt. Do not install vnstock into this environment.

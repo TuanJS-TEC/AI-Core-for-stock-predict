@@ -1,0 +1,92 @@
+import unittest
+from datetime import timedelta
+from ai_core.news.contract import ArticleCompanyResult, build_snapshot, utc
+from ai_core.news.synthetic import synthetic_results
+
+R = synthetic_results()
+CUTOFF = utc(2026, 10, 20, 9, 0)  # 31h after T0: r5 (T0+50h) must be invisible
+
+
+class SnapshotTest(unittest.TestCase):
+    def test_no_future_articles_and_reposts_dropped(self):
+        s = build_snapshot(R, "AAA", CUTOFF)
+        self.assertEqual(s.lineage, ["r1", "r2", "r4", "r7"])  # no r5 (future), no r3 (repost)
+
+    def test_uncertain_not_neutral(self):
+        f = build_snapshot(R, "AAA", CUTOFF).features
+        self.assertAlmostEqual(f["uncertain_ratio"], 1 / 4)
+        self.assertAlmostEqual(f["sentiment_mean"],
+                               ((0.7 - 0.1) + (0.1 - 0.8) + (0.6 - 0.2)) / 3)  # r4 excluded, r7 kept
+
+    def test_difficult_is_reported_but_still_counted(self):
+        f = build_snapshot(R, "AAA", CUTOFF).features
+        self.assertAlmostEqual(f["difficult_ratio"], 1 / 4)        # r7 of r1,r2,r4,r7
+        self.assertIsNone(build_snapshot(R, "CCC", CUTOFF).features["difficult_ratio"])   # no news => missing
+
+    def test_no_news_is_missing_not_neutral(self):
+        f = build_snapshot(R, "CCC", CUTOFF).features
+        self.assertFalse(f["has_news"])
+        self.assertEqual(f["news_count_24h"], 0)
+        self.assertIsNone(f["sentiment_mean"])
+
+    def test_live_requires_processing_before_cutoff(self):
+        # r1 published at T0, processed T0+10min; cutoff 5 min after publication => not yet usable live
+        s = build_snapshot(R, "AAA", utc(2026, 10, 19, 2, 5))
+        self.assertEqual(s.lineage, [])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class WindowTest(unittest.TestCase):
+    def test_old_articles_leave_sentiment_window_but_not_recency(self):
+        s = build_snapshot(R, "AAA", utc(2026, 10, 25, 0, 0))   # everything is > 72h old except nothing
+        f = s.features
+        self.assertFalse(f["has_news"])
+        self.assertIsNone(f["sentiment_mean"])
+        self.assertGreater(f["hours_since_last_news"], 72)
+        self.assertEqual(s.lineage, [])
+
+
+def _r(i, hours_before, pos, neg, unc=False, cut=utc(2026, 1, 5, 8)):
+    t = cut - timedelta(hours=hours_before) - timedelta(minutes=30)        # backtest availability = published + 30 min
+    return ArticleCompanyResult(f"r{i}", "AAA", "s", t, t, "direct", pos, 1 - pos - neg, neg, uncertain=unc)
+
+
+class V3Test(unittest.TestCase):
+    def test_intensity_shock_decay(self):
+        rs = [_r(1, 0, 0.9, 0.0), _r(2, 24, 0.0, 0.6)]                    # +0.9 now, -0.6 one half-life ago
+        f = build_snapshot(rs, "AAA", utc(2026, 1, 5, 8), "backtest").features
+        self.assertAlmostEqual(f["sentiment_abs_max"], 0.9)
+        self.assertAlmostEqual(f["sentiment_shock_24h"], abs(f["sentiment_mean_24h"]))
+        self.assertAlmostEqual(f["sentiment_decay"], (0.9 * 1 + (-0.6) * 0.5) / 1.5)
+
+    def test_uncertain_result_does_not_count_toward_abs_max_or_decay(self):
+        rs = [_r(1, 0, 0.5, 0.0), _r(2, 0, 0.99, 0.0, unc=True)]          # certain +0.5; uncertain +0.99 must be ignored
+        f = build_snapshot(rs, "AAA", utc(2026, 1, 5, 8), "backtest").features
+        self.assertAlmostEqual(f["sentiment_abs_max"], 0.5)
+        self.assertAlmostEqual(f["sentiment_decay"], 0.5)
+
+    def test_all_uncertain_window_is_none(self):
+        f = build_snapshot([_r(1, 1, 0.9, 0.0, unc=True)], "AAA", utc(2026, 1, 5, 8), "backtest").features
+        self.assertIsNone(f["sentiment_abs_max"])
+        self.assertIsNone(f["sentiment_decay"])
+        self.assertIsNone(f["sentiment_shock_24h"])
+
+
+def _flagged(i, hours_ago, flags=("guarantee",)):
+    t = utc(2026, 10, 20, 9, 0) - timedelta(hours=hours_ago)
+    return ArticleCompanyResult(f"f{i}", "ZZZ", "s", t, t, "direct", 0.2, 0.6, 0.2, risk_flags=flags)
+
+
+class RiskFlagTest(unittest.TestCase):
+    def test_risk_flag_72h_counts_window(self):
+        rs = [_flagged(1, 10), _flagged(2, 100), _flagged(3, 5, ())]   # f2 older than 72h, f3 unflagged
+        f = build_snapshot(rs, "ZZZ", CUTOFF).features
+        self.assertEqual(f["risk_flag_72h"], 1)
+
+    def test_risk_flag_zero_without_news(self):
+        f = build_snapshot([], "GAS", CUTOFF).features
+        self.assertEqual(f["risk_flag_72h"], 0)
+        self.assertFalse(f["has_news"])

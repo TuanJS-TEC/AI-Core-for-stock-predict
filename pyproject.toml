@@ -1,4 +1,19 @@
+[project]
+name = "ai-core"
+version = "0.1"
+requires-python = ">=3.14"
+dependencies = []   # each venv keeps its own requirements: NLP_Module/requirements.txt, Pipeline_V1.2/requirements.txt
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ai_core*"]
+
+[tool.setuptools.package-data]
+"ai_core.news" = ["schema.sql"]
+
 [tool.pytest.ini_options]
-# two top-level packages live in the sibling modules: `src` (Pipeline_V1.2) and `nlp_module` (NLP_Module)
-pythonpath = [".", "Pipeline_V1.2", "NLP_Module"]
 testpaths = ["tests"]
+pythonpath = ["."]

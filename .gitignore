@@ -1,7 +1,17 @@
-NLP_Module/
-Pipeline_V1.2/stock/
-Pipeline_V1.2/outputs/
 .finhay_key
 *.log
 .pytest_cache/
 __pycache__/
+.superpowers/
+# data and local tooling (reference files live in config/, everything big in data/)
+.venv/
+.venv_mmf/
+logs/
+data/prices/
+data/prices_ext/
+data/news/
+data/mmf/
+data/crosscheck_tcbs.csv
+ai_core.egg-info/
+vnstock-migration/
+data/reference/

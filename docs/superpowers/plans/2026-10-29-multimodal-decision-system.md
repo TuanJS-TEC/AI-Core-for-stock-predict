@@ -105,15 +105,22 @@ def test_big_move_after_merge_triggers_full_refetch(...):  # overlap 2026-10-27 
 def test_consistent_update_fetches_once(...):              # overlap matches, no big move
     ...  # assert len(calls) == 1
 
+def test_old_gap_does_not_refetch(...):                    # stored history already holds a >RET_BAND jump (missing sessions)
+    ...  # overlap matches, new rows are normal: assert len(calls) == 1
+
 def test_empty_fetch_keeps_data(...):                      # fake returns pd.DataFrame()
     ...  # assert len(calls) == 1 and parquet closes == stored closes
 ```
 
 - [ ] **Step 2:** `cd Pipeline_V1.2 && $PY -m pytest tests/test_sync.py -v`. Kỳ vọng 3 test mới FAIL;
-  `test_empty_fetch_keeps_data` có thể đã PASS.
+  `test_empty_fetch_keeps_data` và `test_old_gap_does_not_refetch` có thể đã PASS.
 - [ ] **Step 3:** Cài đặt `basis_changed`. Trả True khi một trong hai điều kiện đúng:
   - Một phiên có trong `stored` mà giá đóng cửa trong `merged` lệch quá `SYNC_BASIS_TOL`.
-  - `merged.close.pct_change().abs().max() > SYNC_RET_BAND`.
+  - Bước nhảy `|pct_change| > SYNC_RET_BAND` của `merged.close` xảy ra giữa hai phiên mà phiên sau **mới hơn
+    `stored.time.max()`** (tính từ phiên cuối của `stored` trở đi). Bước nhảy đã nằm sẵn trong lịch sử (phiên bị
+    thiếu thật như 22–23/10) không được tính lại mỗi ngày; một khoảng trống hợp lệ trong phiên mới chỉ gây đúng một
+    lần tải lại, rồi nằm trong `stored` từ hôm sau.
+    <!-- ponytail: không phân biệt được bước nhảy do phiên thiếu với corporate action trong lần chạy đầu tiên; chấp nhận một lần tải lại. -->
 
   Trong `process_stock_file`, sau khi ghép: nếu `basis_changed`, gọi lại `fetch_latest_ohlcv(symbol,
   df_csv.time.min() as "%Y-%m-%d", end_date_str)`. Nếu kết quả không rỗng thì nó thay toàn bộ `df_merged`, kèm log
@@ -126,7 +133,30 @@ def test_empty_fetch_keeps_data(...):                      # fake returns pd.Dat
 
 **Files:**
 - Modify: `tests/test_alignment.py`
+- Modify: `Pipeline_V1.2/sync_stock_parquet.py` (`--full-refresh`, `drop_open_session`)
+- Test: `Pipeline_V1.2/tests/test_sync.py`
 
+**Bổ sung sau khi Task 2 bị chặn (2026-10-30):** vết nối TCB nằm sẵn trong dữ liệu đã lưu (27/10 = 33.55 cũ, 28/10 và
+29/10 đã theo chuẩn mới), còn lần fetch tăng dần bắt đầu từ 29/10 và khớp, nên `basis_changed` của Task 1 không thể
+bắt được. Cần một cách tải lại tường minh. Ngoài ra chạy sync giữa phiên (trước 15:00 giờ VN) ghi thêm một dòng phiên
+hôm nay chưa chốt, làm lệch lịch giữa các mã (`test_prices_aligned_and_unique` hỏng).
+
+**Interfaces:**
+- Produces:
+  - `process_stock_file(..., full_refresh: bool = False)`. Khi True, bỏ bước tăng dần: gọi `fetch_latest_ohlcv(symbol,
+    df_csv.time.min() as "%Y-%m-%d", end_date_str)` và, nếu kết quả không rỗng, nó thay toàn bộ `df_merged` (kèm
+    `logger.warning("[SYM] tải lại toàn bộ lịch sử (--full-refresh)")`); rỗng thì giữ nguyên dữ liệu.
+  - CLI `--full-refresh SYM...` (các mã cần tải lại toàn bộ; mã không có trong danh sách chạy như cũ).
+  - `drop_open_session(df: pd.DataFrame, now: pd.Timestamp) -> pd.DataFrame`: bỏ các dòng có ngày bằng ngày của `now`
+    (giờ Việt Nam) khi `now` trước 15:00 giờ Việt Nam. `fetch_latest_ohlcv` gọi nó trên kết quả trước khi trả, nên
+    cả sync, `--full-refresh` lẫn `init_stock_file` (Task 5) không bao giờ ghi phiên chưa chốt.
+
+- [ ] **Step 0 (làm trước Step 1):** Trong `Pipeline_V1.2/tests/test_sync.py` viết test hỏng rồi cài đặt phần Interfaces
+  ở trên: `test_full_refresh_replaces_history` (lưu 33.8/33.55/22.35 liền kề, fake trả chuỗi đã điều chỉnh, kiểm tra
+  `calls` bắt đầu ở ngày đầu tiên đã lưu và parquet bằng chuỗi fetch), `test_full_refresh_empty_keeps_data`,
+  `test_drop_open_session_before_close` và `test_drop_open_session_after_close` (hai test dùng `now` cố định). Chạy
+  `cd Pipeline_V1.2 && $PY -m pytest tests -v` kỳ vọng tất cả PASS, rồi commit
+  `feat(sync): --full-refresh and drop the open session` (file CSV/parquet thật chưa bị đụng ở bước này).
 - [ ] **Step 1:** Thêm test vào `tests/test_alignment.py`:
 
 ```python
@@ -136,8 +166,9 @@ def test_no_corporate_action_seam():
 ```
 
 - [ ] **Step 2:** `$PY -m pytest tests/test_alignment.py -v`. Kỳ vọng FAIL với `n_big_moves == 1`, chính là TCB 28/10.
-- [ ] **Step 3:** Chạy sync cho TCB (kèm các biến vnstock ở Global Constraints):
-  `cd Pipeline_V1.2 && $PY sync_stock_parquet.py --symbols TCB`. Log phải có dòng "tải lại toàn bộ".
+- [ ] **Step 3:** Sao lưu `TCB_stock.csv` và `.parquet` ra scratchpad, rồi chạy sync cho TCB (kèm các biến vnstock ở
+  Global Constraints): `cd Pipeline_V1.2 && $PY sync_stock_parquet.py --symbols TCB --full-refresh TCB`. Log phải có
+  dòng "tải lại toàn bộ" và không có dòng phiên hôm nay nếu chạy trước 15:00.
 - [ ] **Step 4:** Chạy lại lệnh ở Step 2. Kỳ vọng `test_no_corporate_action_seam` PASS.
   `test_pipeline_prices_cover_nlp_copy` vẫn PASS vì FPT không đổi; test này được viết lại ở Task 3.
 - [ ] **Step 5:** Commit vào repo AI_Core: `test: no corporate-action seam in canonical prices`.
@@ -152,19 +183,27 @@ def test_no_corporate_action_seam():
 **Interfaces:**
 - Produces:
   - `volcast.STOCK_DIR = Path(__file__).resolve().parents[3] / "Pipeline_V1.2" / "stock"`.
-  - `load_history(stock_dir=STOCK_DIR, symbols=None)`; `symbols=None` nghĩa là mọi file trong thư mục.
+  - `volcast.SYMBOLS` = 15 mã Pipeline cũ (ACB FPT GAS HPG MBB MSN MWG SSI STB TCB VCB VIC VNM VPB VRE). Đây là tập
+    volcast live dùng cho tới khi Task 7 quyết định mở rộng; việc thêm file mã mới vào `stock/` ở Task 5 không được
+    làm đổi tập này.
+  - `load_history(stock_dir=STOCK_DIR, symbols=None)`; `symbols=None` nghĩa là mọi file trong thư mục (giữ test dùng
+    thư mục tạm chạy được).
   - `bars(c, stock_dir=STOCK_DIR, symbols=None)`.
+  - CLI `volcast eval|train|predict --symbols fixed|all|A,B,...`. `fixed` (mặc định) = `SYMBOLS`; `all` = mọi file
+    (`None`). `main` truyền kết quả xuống `bars`/`load_history`.
 
 - [ ] **Step 1:** Thay `test_pipeline_prices_cover_nlp_copy` bằng:
 
 ```python
 def test_volcast_reads_canonical_prices():
     from nlp_module.forecast import volcast
-    h = volcast.load_history().set_index(["symbol", "date"]).close.sort_index()
+    h = volcast.load_history(symbols=volcast.SYMBOLS).set_index(["symbol", "date"]).close.sort_index()
     p = load_prices().set_index(["symbol", "date"]).close.sort_index()
-    assert set(h.index.get_level_values(0)) == set(C.UNIVERSE) and (h.loc[p.index] == p).all()
+    assert set(h.index.get_level_values(0)) == set(volcast.SYMBOLS) and set(C.UNIVERSE) <= set(volcast.SYMBOLS)
+    assert (h.loc[p.index] == p).all()
 ```
 
+  Thêm test cho `load_history` với `symbols=["AAA"]` trên thư mục tạm có hai mã: chỉ trả AAA.
 - [ ] **Step 2:** Chạy `$PY -m pytest tests/test_alignment.py -v`. Kỳ vọng FAIL, vì volcast vẫn đọc `data/stock` (bản
   sao cũ còn vết nối TCB).
 - [ ] **Step 3:** Cài đặt như mục Interfaces. Default `--stock-dir` của `trial_forecast` đổi thành
@@ -257,20 +296,22 @@ def test_volcast_reads_canonical_prices():
 ### Task 7: Lần thử volcast 20 mã (quy tắc đặt trước)
 
 **Files:**
-- Modify: `NLP_Module/nlp_module/forecast/volcast.py` (`SYMBOLS`)
+- Modify: `NLP_Module/nlp_module/forecast/volcast.py` (`SYMBOLS`, `VERSION` nếu ship)
 - Modify: `NLP_Module/docs/model_report.md`
+
+`volcast.SYMBOLS` (15 mã) và `--symbols` đã có từ Task 3, nên volcast live vẫn dùng 15 mã suốt Task 5–7.
 
 **Quy tắc ship (đã chép từ spec):**
 - (a) `mean(test_acc - rule_acc)` ≥ mốc fixed-15 của Task 4.
 - (b) Fold C `test_n ≥ 100` ở cả h=2 và h=5.
 
 - [ ] **Step 1:** Ghi quy tắc vào `model_report.md` **trước khi chạy**.
-- [ ] **Step 2:** `volcast eval --test-end 2026-10-30 | tee data/reports/volcast_eval_u20.txt`. Thư mục giá lúc này đã
-  có 20 mã.
+- [ ] **Step 2:** `volcast eval --symbols all --test-end 2026-10-30 | tee data/reports/volcast_eval_u20.txt`. Thư mục
+  giá lúc này đã có 20 mã. Kiểm tra đầu ra liệt kê đủ 20 mã.
 - [ ] **Step 3:** Ghi kết quả và quyết định.
-  - Nếu ship: `train` rồi `predict`, `VERSION = "volcast-v2.2"`.
-  - Nếu không: đặt `volcast.SYMBOLS` = 15 mã Pipeline cũ, truyền xuống `bars`/`load_history` trong `main`, rồi chạy
-    lại `train` và `predict`. `VERSION` giữ `"volcast-v2.1"`.
+  - Nếu ship: đặt `volcast.SYMBOLS` = 20 mã (cùng danh sách `ai_core.config.UNIVERSE` ở Task 6), `VERSION =
+    "volcast-v2.2"`, rồi `train` và `predict`.
+  - Nếu không: `SYMBOLS` giữ 15 mã, `VERSION` giữ `"volcast-v2.1"`; không cần chạy lại `train`/`predict`.
 - [ ] **Step 4:** Commit vào repo NLP: `exp(volcast): 20-ticker basket — <shipped|kept 15>`.
 
 ---
@@ -356,7 +397,8 @@ def test_label_nan_without_vol_or_future():
   `Pipeline_V1.2/outputs/results/pooled_embed_k0.43/final_table.csv` kèm chú thích "split 70/15/15, dữ liệu trước khi
   sửa"; và quyết định GO/NO-GO cho từng h.
 - [ ] **Step 3:** Commit: `exp: direction GO/NO-GO — <GO h=…|NO-GO>`.
-  - Nếu GO: dừng kế hoạch này sau Task 15 và lập kế hoạch Bước 4 riêng.
+  - Nếu GO: làm tiếp Task 11–15 (Bước 3 và bảng `fusion_decision`), bỏ Task 16–17, và lập kế hoạch Bước 4 riêng
+    (RuleGate sẽ mở rộng `decide` ở Task 15).
   - Nếu NO-GO: tiếp tục như viết bên dưới.
 
 ---

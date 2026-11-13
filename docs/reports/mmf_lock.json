@@ -1,0 +1,54 @@
+{
+  "2": {
+    "baseline": "logit_all",
+    "unimodal": "dl_price",
+    "fusion": "fusion_attention",
+    "price_kind": "lstm",
+    "dataset_id": "24251acc1a5695bdcc2c8e8e6b2527669eb84b6ece095d6f3a5e6a929f2ae4ad",
+    "git_commit": "526b94e",
+    "created_at": "2026-11-09T14:43:18+00:00",
+    "picks": {
+      "A": {
+        "baseline": "logit_price",
+        "unimodal": "dl_price",
+        "fusion": "fusion_concat"
+      },
+      "B": {
+        "baseline": "logit_all",
+        "unimodal": "dl_price",
+        "fusion": "fusion_attention"
+      },
+      "C": {
+        "baseline": "logit_all",
+        "unimodal": "dl_price",
+        "fusion": "stack"
+      }
+    }
+  },
+  "5": {
+    "baseline": "logit_price",
+    "unimodal": "dl_price",
+    "fusion": "fusion_attention",
+    "price_kind": "gru",
+    "dataset_id": "24251acc1a5695bdcc2c8e8e6b2527669eb84b6ece095d6f3a5e6a929f2ae4ad",
+    "git_commit": "526b94e",
+    "created_at": "2026-11-09T14:43:18+00:00",
+    "picks": {
+      "A": {
+        "baseline": "logit_price",
+        "unimodal": "dl_price",
+        "fusion": "fusion_attention"
+      },
+      "B": {
+        "baseline": "logit_price",
+        "unimodal": "dl_price",
+        "fusion": "fusion_attention"
+      },
+      "C": {
+        "baseline": "logit_price",
+        "unimodal": "dl_price",
+        "fusion": "stack"
+      }
+    }
+  }
+}

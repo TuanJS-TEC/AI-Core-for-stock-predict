@@ -12,3 +12,14 @@ def test_leak_check_scores_true_labels_then_each_permutation(tmp_path, monkeypat
     assert ((auc >= 0) & (auc <= 1)).all() and (d[L.HEADER[5]] <= d[L.HEADER[3]]).all() and (d[L.HEADER[3]] <= d[L.HEADER[6]]).all()
     text = L.write(d, tmp_path / "x/leak.md").read_text()
     assert text.count("\n") == 2 + 3 and "AUC nhãn xáo trộn: trung bình" in text
+
+
+def test_cli_label_reaches_fold_bundle(tmp_path, monkeypatch):
+    import pandas as pd
+    calls = []
+    monkeypatch.setattr(L, "build_panel", lambda tickers, stock_dir=None: None)
+    monkeypatch.setattr(X, "fold_bundle", lambda panel, h, fold, label="adaptive": calls.append(label))
+    monkeypatch.setattr(L, "run", lambda panel, h, perms, device, build=X.fold_bundle: (build(None, 5, FOLD), pd.DataFrame(columns=L.HEADER))[1])
+    L.main(["--stock-dir", "x", "--label", "xs", "--out", str(tmp_path / "l.md")])
+    L.main(["--stock-dir", "x", "--out", str(tmp_path / "l.md")])
+    assert calls == ["xs", "adaptive"]

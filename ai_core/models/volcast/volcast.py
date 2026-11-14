@@ -137,13 +137,13 @@ def _rule_acc(te, n, y):
     return k / int(n), k
 
 
-def walk(df, h, folds=FOLDS, hold=None):
+def walk(df, h, folds=FOLDS, hold=None, feats=None):
     """df = add_features output. Per fold: fit on train, pick the threshold on val, refit on train+val, score test once.
     Strong (y=1) means the ticker's |forward return| beats the day's cross-sectional median.
     hold=SYMBOL (leave-one-ticker-out): train/val/refit without that symbol, test on that symbol's rows only. Labels and
     mret* still come from the full cross-section (that is what the live model sees on the day)."""
-    y = f"y{h}"
-    d = tf.add_targets(df.assign(close=df.adj), h, "absmove").dropna(subset=FEATS)   # adj: labels across ex-dates too
+    y, feats = f"y{h}", FEATS if feats is None else feats   # feats: another feature list on the same harness (news_fusion)
+    d = tf.add_targets(df.assign(close=df.adj), h, "absmove").dropna(subset=feats)   # adj: labels across ex-dates too
     out = []
     for name, *dates in folds:
         tr, va, trva, te = _split(d, h, *dates)
@@ -152,7 +152,7 @@ def walk(df, h, folds=FOLDS, hold=None):
             te = te[te.symbol == hold]
         best = None
         for m, mk in MODELS.items():
-            pv = mk().fit(tr[FEATS], tr[y]).predict_proba(va[FEATS])[:, 1]
+            pv = mk().fit(tr[feats], tr[y]).predict_proba(va[feats])[:, 1]
             cv, okv = np.abs(pv - 0.5), (pv > 0.5) == (va[y].to_numpy() > 0.5)
             t = pick_threshold(cv, okv)
             if t is not None and (best is None or okv[cv >= t].mean() > best[1]):
@@ -162,7 +162,7 @@ def walk(df, h, folds=FOLDS, hold=None):
                    rule_ci_lo=np.nan, rule_ci_hi=np.nan)
         if best and len(te):
             m, va_acc, t, va_cov = best
-            pt = MODELS[m]().fit(trva[FEATS], trva[y]).predict_proba(te[FEATS])[:, 1]
+            pt = MODELS[m]().fit(trva[feats], trva[y]).predict_proba(te[feats])[:, 1]
             sel = np.abs(pt - 0.5) >= t
             n, k = int(sel.sum()), int((((pt > 0.5) == (te[y].to_numpy() > 0.5)) & sel).sum())
             ra, rk = _rule_acc(te, n, y)

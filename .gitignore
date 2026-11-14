@@ -22,6 +22,8 @@ htmlcov/
 # data and run outputs (small reference files live in config/, tracked data in data/finhay and data/global)
 data/prices/
 data/prices_ext/
+data/prices_2018/
+data/prices_tcbs/
 data/news/
 data/mmf/
 data/reference/

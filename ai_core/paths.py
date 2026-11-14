@@ -16,3 +16,5 @@ DATA = ROOT / "data"
 PRICES = DATA / "prices"
 PRICES_EXT = DATA / "prices_ext"
 NEWS = DATA / "news"
+EVENTS = PRICES / "events"     # corporate-event calendar snapshots, one parquet per download day
+RANGECAST = DATA / "rangecast"     # price-range model: bundle, evaluation tables

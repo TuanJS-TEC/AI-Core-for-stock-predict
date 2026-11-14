@@ -348,3 +348,20 @@ def test_full_refetch_all_rows_invalid_keeps_stored_data(tmp_path, monkeypatch, 
 def test_full_refetch_losing_a_mid_row_keeps_stored_data(tmp_path, monkeypatch):
     pq = _full_refresh_with_bad_rows(tmp_path, monkeypatch, [100, None, 100])        # would drop 10-27 for good
     assert list(pq.close) == [33.8, 33.55, 22.35]
+
+
+def test_quote_fallback_when_no_market(monkeypatch):
+    calls = []
+
+    class FakeQuote:
+        def __init__(self, source, symbol):
+            calls.append((source, symbol))
+
+        def history(self, **k):
+            calls.append(k)
+            return pd.DataFrame()
+    monkeypatch.setattr(S, "Market", None)
+    monkeypatch.setattr(S, "Quote", FakeQuote)
+    S.fetch_latest_ohlcv("AAA", "2026-10-01", "2026-10-02")
+    assert calls == [(C.FALLBACK_SOURCE, "AAA"),
+                     {"start": "2026-10-01", "end": "2026-10-02", "interval": C.SYNC_INTERVAL}]

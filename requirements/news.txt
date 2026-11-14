@@ -8,3 +8,4 @@ transformers
 accelerate
 pytest
 vnfinancialdata
+psycopg[binary]>=3.2   # ai_core/fusion/stocksense.py (push the live board to StockSenseVN PostgreSQL)

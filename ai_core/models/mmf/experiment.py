@@ -14,7 +14,7 @@ import torch
 
 from ai_core import paths
 from . import config as C
-from . import aux as AUX, baselines as B, evaluate as E, train as TR
+from . import aux as AUX, baselines as B, evaluate as E, fund_quarter as FQ, train as TR
 from .context import CTX_FEATS, context_features
 from .frame import GROUPS, KEY, build_frame
 from .models import FusionNet
@@ -43,6 +43,8 @@ class Bundle:
     price_cols: list | None = None   # columns of the price window; None = GROUPS["price"] (v1)
     variant: str | None = None       # key of C.VARIANTS; None = v1
     aux_id: str | None = None        # frozen aux directory the variant was built from
+    label_kind: str = "adaptive"     # "xs" = market-neutral labels (prereg addendum 2026-11-11)
+    fund_cols: list | None = None    # columns of the financial vector; None = GROUPS["fund"] (annual, v1)
 
 
 def _class_prior(train, tickers):
@@ -59,10 +61,26 @@ def bundle_from_frame(frame, h, fold, nlp_version, dataset_id, tickers):
     return Bundle(fold, h, nlp_version, dataset_id, frame, scaled, blocks, samples, tickers, _class_prior(blocks["train"], tickers))
 
 
-def fold_bundle(panel, h, fold):
+def fold_bundle(panel, h, fold, label="adaptive"):
     """Bundle of one (h, fold) from a price panel, with the fold's sentiment model."""
-    nlp_version = C.FOLD_NLP[fold.name]
-    return bundle_from_frame(build_frame(panel, h, nlp_version), h, fold, nlp_version, panel.dataset_id, sorted(panel.ohlcv))
+    nlp_version = {**C.BACK_NLP, **C.FOLD_NLP}[fold.name]
+    frame = build_frame(panel, h, nlp_version, **({} if label == "adaptive" else {"label": label}))
+    return replace(bundle_from_frame(frame, h, fold, nlp_version, panel.dataset_id, sorted(panel.ohlcv)), label_kind=label)
+
+
+def quarter_bundle(panel, h, fold):
+    """Bundle of prereg R12: as fold_bundle, with the financial vector taken from the quarterly statements (FQ.QFUND_FEATS)
+    instead of the annual ones. Rows, labels, price and text features are those of fold_bundle."""
+    nlp_version, tickers = C.FOLD_NLP[fold.name], sorted(panel.ohlcv)
+    frame = build_frame(panel, h, nlp_version)
+    frame[FQ.QFUND_FEATS] = FQ.add_quarter(frame[[*KEY, "close"]], panel.calendar)[FQ.QFUND_FEATS]
+    blocks = split_samples(frame[frame["usable"]], fold)
+    cols = [*GROUPS["price"], *(c for c in GROUPS["text"] if c not in BINARY), *(c for c in FQ.QFUND_FEATS if c not in FQ.QBINARY)]
+    scaled = Scalers.fit(blocks["train"], cols).apply(frame)
+    samples = {k: make_samples(scaled, rows, tickers, fund_cols=FQ.QFUND_FEATS) for k, rows in blocks.items()}
+    blocks = {k: rows.loc[samples[k].row_index] for k, rows in blocks.items()}
+    return Bundle(fold, h, nlp_version, panel.dataset_id, frame, scaled, blocks, samples, tickers,
+                  _class_prior(blocks["train"], tickers), fund_cols=list(FQ.QFUND_FEATS))
 
 
 def _ext_rows(panel, extra, h, columns):
@@ -154,11 +172,15 @@ def _write_preds(path, b, arm, seed, price_kind, probs, alpha):
         nlp_version=b.nlp_version, dataset_id=b.dataset_id, git_commit=_git_commit())
     if b.aux_id is not None:
         out["aux_id"] = b.aux_id
+    if b.label_kind != "adaptive":
+        out["label_kind"] = b.label_kind
     _atomic(path, lambda tmp: out.to_parquet(tmp, index=False))
 
 
 def _run_meta(b):
     meta = {"dataset_id": b.dataset_id, "nlp_version": b.nlp_version, "h": b.h, "fold": b.fold.name}
+    if b.label_kind != "adaptive":       # v1 files carry no label_kind column and stay reusable
+        meta["label_kind"] = b.label_kind
     return meta if b.aux_id is None else {**meta, "aux_id": b.aux_id}
 
 
@@ -191,7 +213,7 @@ def _reusable(path, b, price_kind):
 
 def _net_maker(b, arm, price_kind):
     branches, fusion = C.ARMS[arm]
-    dims = [len(b.price_cols or GROUPS["price"]), len(GROUPS["text"]), len(GROUPS["fund"])]
+    dims = [len(b.price_cols or GROUPS["price"]), len(GROUPS["text"]), len(b.fund_cols or GROUPS["fund"])]
     return lambda: FusionNet(branches, fusion, len(b.tickers), *dims, price_kind)
 
 
@@ -207,7 +229,7 @@ def run_baseline(b, name, out_path):
     if _reusable(out_path, b, "none"):
         return
     start = time.time()
-    p = B.predict_baseline(name, b.blocks, b.scaled, b.frame, b.price_cols)
+    p = B.predict_baseline(name, b.blocks, b.scaled, b.frame, b.price_cols, b.fund_cols)
     alpha = E.fit_alpha(b.samples["calib"].y, p["calib"], _prior_rows(b, "calib"))
     _write_preds(out_path, b, name, 0, "none", p, alpha)
     print(f"h{b.h} {b.fold.name} {out_name(b, name)} alpha={alpha} {time.time() - start:.0f}s", flush=True)
@@ -287,10 +309,11 @@ def run_variants(panel, aux, horizons, folds, run_dir, device, variants=tuple(C.
 
 
 def main(argv=None):
-    folds = {f.name: f for f in folds_from_config()}
+    dev = [f.name for f in folds_from_config()]
+    folds = {f.name: f for f in [*folds_from_config(), *(Fold(n, *map(pd.Timestamp, e)) for n, *e in C.BACK_FOLDS)]}
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--h", type=int, nargs="+", default=list(C.HORIZONS))
-    ap.add_argument("--folds", nargs="+", choices=list(folds), default=list(folds))
+    ap.add_argument("--folds", nargs="+", choices=list(folds), default=dev, help="D, E, Fb = backward folds (prereg R8)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--stock-dir")
     mode = ap.add_mutually_exclusive_group()
@@ -300,13 +323,23 @@ def main(argv=None):
     ap.add_argument("--arms", nargs="+", choices=list(C.ARMS), help="DL arms to train (baselines always run)")
     ap.add_argument("--seeds", type=int, choices=range(1, len(C.SEEDS) + 1), help="first N seeds")
     ap.add_argument("--variants", nargs="+", choices=list(C.VARIANTS), help="run these v2 variants instead of the v1 arms (needs --aux-dir)")
+    ap.add_argument("--label", choices=("adaptive", "xs", "mag"), default="adaptive", help="xs = market-neutral, mag = magnitude labels; only with --name")
     ap.add_argument("--aux-dir", help="frozen aux directory printed by `python -m ai_core.models.mmf.aux freeze`")
+    ap.add_argument("--start", help="first usable session instead of C.START (longer price history); only with --name")
     a = ap.parse_args(argv)
+    if a.start:
+        if not a.name:
+            ap.error("--start needs --name")
+        C.START = a.start
     if a.variants and not a.aux_dir:
         ap.error("--variants needs --aux-dir")
     if a.variants and a.arms:
         ap.error("--arms does not apply to --variants")
+    if a.label != "adaptive" and (not a.name or a.variants):
+        ap.error("--label xs needs --name and does not apply to --variants")
     kind, names, kw = "runs", a.folds, {}
+    if a.label != "adaptive":
+        kw["build"] = lambda p, h, f: fold_bundle(p, h, f, label=a.label)
     if a.name:
         kind = f"exp/{a.name}"
     kw.update({k: v for k, v in (("arms", a.arms), ("seeds", a.seeds and C.SEEDS[:a.seeds])) if v})

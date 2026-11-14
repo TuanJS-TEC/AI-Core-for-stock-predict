@@ -44,6 +44,12 @@ def connect(path=DB_PATH) -> sqlite3.Connection:
                  has_news INTEGER NOT NULL, sentiment_mean_24h REAL, risk_flags TEXT NOT NULL, reason TEXT,
                  version TEXT NOT NULL, created_at TEXT NOT NULL,
                  PRIMARY KEY (symbol, base_date, h, version))""")
+    c.execute("""CREATE TABLE IF NOT EXISTS range_forecast (
+                 symbol TEXT NOT NULL, base_date TEXT NOT NULL, h INTEGER NOT NULL, close REAL NOT NULL,
+                 lo_pct REAL NOT NULL, hi_pct REAL NOT NULL, sigma REAL NOT NULL,
+                 risk_level TEXT NOT NULL CHECK (risk_level IN ('low','normal','high')),
+                 model_version TEXT NOT NULL, created_at TEXT NOT NULL,
+                 PRIMARY KEY (symbol, base_date, h, model_version))""")
     return c
 
 

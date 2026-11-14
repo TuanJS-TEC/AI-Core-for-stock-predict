@@ -75,6 +75,7 @@ SYNC_BASIS_TOL = 0.005                      # nghìn đồng; lệch giá đóng
 SYNC_RET_BAND = 0.072                       # |lợi suất ngày| lớn hơn mức này ở phiên mới = nghi đổi chuẩn điều chỉnh
 SYNC_INIT_START = "2021-01-04"              # ngày bắt đầu tải lịch sử cho mã mới (--init)
 SYNC_SOURCE = "tcbs"                       # nguồn Open API của vnstock thế hệ 6 (Market(SYNC_SOURCE)); khoá: `vnstock keys set tcbs`, phiên: `vnstock auth tcbs` (Smart OTP, hết hạn sau vài giờ). Trước đó là "kbs" của vnstock 4.x.
+FALLBACK_SOURCE = "kbs"                    # nguồn của vnstock 4.x (Quote) khi chạy sync trong .venv; không cần khoá
 SYNC_OVERLAP_SESSIONS = 20                  # tải chồng ngần này phiên gần nhất để so với dữ liệu đã lưu
 SESSION_HOUR_UTC = 7                        # mỗi phiên ghi đúng một mốc: ngày + 07:00 UTC
 

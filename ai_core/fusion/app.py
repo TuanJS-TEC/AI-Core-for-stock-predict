@@ -1292,8 +1292,9 @@ with tab_3d:
 with tab_board:
     import json
     st.header("Bảng quyết định")
-    st.caption("Quyết định mới nhất cho mỗi mã và kỳ T+h. Hiện chưa có model hướng đi (NO-GO) nên bảng chỉ có "
-               "**NO_TRADE** hoặc **DATA_INVALID** — không phải tín hiệu mua/bán. Volcast chỉ nói biên độ mạnh/yếu.")
+    st.caption("Dự báo xu hướng mới nhất cho mỗi mã và kỳ T+h: **Tăng**, **Giảm** hoặc **Đi ngang** — không phải tín hiệu "
+               "mua/bán. Đi ngang lấy từ volcast (biên độ yếu, có bằng chứng ngoài mẫu); Tăng/Giảm lấy từ model hướng, "
+               "model này **chưa chứng minh được lợi thế** (kiểm định NO-GO). Tin tức không đổi nhãn, chỉ giải thích ở cột Lý do.")
     _fd = db_fusion_decision()
     if _fd.empty:
         st.info("Chưa có quyết định (bảng `fusion_decision` còn rỗng). Chạy:\n\n"
@@ -1315,12 +1316,15 @@ with tab_board:
         _lbl = {"strong": "Mạnh", "weak": "Yếu"}
         _show = pd.DataFrame({
             "Mã": _fd["symbol"], "Kỳ": "T+" + _fd["h"].astype(str), "Phiên căn cứ": _fd["base_date"],
-            "Quyết định": _fd["decision"], "Lý do": _fd["reason"],
+            "Dự báo": _fd["decision"].replace({"LONG": "Tăng", "AVOID": "Giảm", "NO_TRADE": "Đi ngang"}), "Lý do": _fd["reason"],
+            "P(tăng)": _fd["p_up"], "P(giảm)": _fd["p_down"],
             "Volcast": [_lbl.get(c, "—") for c in _fd["call"]], "p_strong": _fd["p_strong"],
             "Có tin": _fd["has_news"].astype(bool), "Sentiment 24h": _fd["sentiment_mean_24h"],
             "Cờ rủi ro": [", ".join(json.loads(f)) or "—" for f in _fd["risk_flags"]]})
         st.dataframe(_show, hide_index=True, width="stretch",
                      column_config={"p_strong": st.column_config.NumberColumn(format="%.2f"),
+                                    "P(tăng)": st.column_config.NumberColumn(format="%.2f"),
+                                    "P(giảm)": st.column_config.NumberColumn(format="%.2f"),
                                     "Sentiment 24h": st.column_config.NumberColumn(format="%+.3f")})
         st.caption("Volcast \"—\" = chưa đủ tự tin để nhận định (hoặc DATA_INVALID, hoặc mã ngoài danh sách volcast). "
                    "Sentiment trống = không có tin trong 24 giờ. **DATA_INVALID (stale)** = hàng của mã này cũ hơn phiên "

@@ -25,8 +25,13 @@ def _labelled(s):
     return type(s)(*(getattr(s, f)[keep] if getattr(s, f) is not None else None for f in s.__dataclass_fields__))
 
 
-def fit_net(make_net, train, tune, seed, device, max_epochs=C.MAX_EPOCHS, patience=C.PATIENCE):
-    """Train on labelled rows; return {net (best epoch, eval, on device), best_epoch, tune_nll}."""
+def fit_net(make_net, train, tune, seed, device, max_epochs=C.MAX_EPOCHS, patience=C.PATIENCE, class_weight=None, sample_weight=None):
+    """Train on labelled rows; return {net (best epoch, eval, on device), best_epoch, tune_nll}.
+
+    class_weight (3,) weights the cross-entropy on train and on tune (prereg R10); sample_weight (len(train),) multiplies
+    the train loss per row, 0 drops the row. Both None = the v1 loss, unchanged."""
+    cw = None if class_weight is None else torch.as_tensor(class_weight, dtype=torch.float32)
+    sw = None if sample_weight is None else torch.as_tensor(np.asarray(sample_weight)[train.y >= 0], dtype=torch.float32).to(device)
     train, tune = _labelled(train), _labelled(tune)
     torch.manual_seed(seed)
     net = make_net().to(device)
@@ -40,10 +45,15 @@ def fit_net(make_net, train, tune, seed, device, max_epochs=C.MAX_EPOCHS, patien
         for idx in torch.randperm(len(y), generator=gen).split(C.BATCH):
             idx = idx.to(device)
             opt.zero_grad()
-            F.cross_entropy(net(*(a[idx] for a in x)), y[idx]).backward()
+            if cw is None and sw is None:
+                loss = F.cross_entropy(net(*(a[idx] for a in x)), y[idx])
+            else:       # weighted mean over the rows of the batch that carry weight
+                w = (1.0 if cw is None else cw.to(device)[y[idx]]) * (1.0 if sw is None else sw[idx])
+                loss = (F.cross_entropy(net(*(a[idx] for a in x)), y[idx], reduction="none") * w).sum() / w.sum().clamp_min(1e-8)
+            loss.backward()
             torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
             opt.step()
-        nll = F.cross_entropy(torch.as_tensor(predict_logits(net, tune, device)), y_tune).item()
+        nll = F.cross_entropy(torch.as_tensor(predict_logits(net, tune, device)), y_tune, weight=cw).item()
         if nll < best:
             best, best_epoch, best_state = nll, epoch, copy.deepcopy(net.state_dict())
         elif epoch - best_epoch >= patience:

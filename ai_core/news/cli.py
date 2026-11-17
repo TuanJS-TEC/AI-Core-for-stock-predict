@@ -70,7 +70,7 @@ def main(argv=None):
     p = add("eval"); p.add_argument("--model", required=True); p.add_argument("--stream", choices=["dev", "eval"], default="dev")
     p = add("quotes", help="SSI iBoard quotes next to the model's live sentiment (monitoring, not a backtest)")
     p.add_argument("--symbols", nargs="*"); p.add_argument("--exchange", default="hose")
-    p.add_argument("--model", default="baseline:data/models/baseline.joblib")
+    p.add_argument("--model", default=f"baseline:{paths.NEWS / 'models/baseline.joblib'}")
     p.add_argument("--no-store", action="store_true"); p.add_argument("--interval", type=float, default=1.0)
     p = add("evidence"); p.add_argument("symbol"); p.add_argument("--limit", type=int, default=20)
     p.add_argument("--model", help="nlp_model_version to report (default: every model's rows)")

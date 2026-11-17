@@ -1,17 +1,49 @@
+# secrets
 .finhay_key
-*.log
-.pytest_cache/
+.env
+.env.*
+
+# python
 __pycache__/
-.superpowers/
-# data and local tooling (reference files live in config/, everything big in data/)
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+
+# virtualenvs
 .venv/
 .venv_mmf/
-logs/
+.venv*/
+
+# data and run outputs (small reference files live in config/, tracked data in data/finhay and data/global)
 data/prices/
 data/prices_ext/
+data/prices_2018/
+data/prices_tcbs/
 data/news/
 data/mmf/
-data/crosscheck_tcbs.csv
-ai_core.egg-info/
-vnstock-migration/
 data/reference/
+data/crosscheck_tcbs.csv
+*.joblib
+*.db
+*.sqlite*
+*.lock
+logs/
+*.log
+
+# local tooling and editors
+.superpowers/
+.gitnexus/
+.claude/
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# scratch
+vnstock-migration/
+data/dnse/

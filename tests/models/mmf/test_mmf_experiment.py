@@ -259,3 +259,36 @@ def test_cli_modes(monkeypatch, argv, kind, folds, kwargs):
     assert got["dir"] == C.DATA / kind / ("d" * 16) and [f.name for f in got["f"]] == folds
     assert {k: v for k, v in got["kw"].items() if k != "build"} == kwargs
     assert ("build" in got["kw"]) == (kind == "shuffle")
+
+
+def test_cli_label_xs_builds_xs_bundles_under_a_named_experiment(monkeypatch):
+    got, calls = {}, []
+    monkeypatch.setattr(X, "build_panel", lambda stock_dir=None: SimpleNamespace(dataset_id="d" * 64))
+    monkeypatch.setattr(X, "run_all", lambda panel, h, f, run_dir, device, **k: got.update(dir=run_dir, kw=k))
+    monkeypatch.setattr(X, "fold_bundle", lambda panel, h, fold, label="adaptive": calls.append(label))
+    X.main(["--name", "xs", "--label", "xs", "--device", "cpu"])
+    assert got["dir"] == C.DATA / "exp/xs" / ("d" * 16)
+    got["kw"]["build"](None, 5, FOLD)
+    assert calls == ["xs"]
+    for argv in (["--label", "xs"], ["--smoke", "--label", "xs"]):      # never into runs/, smoke/ or shuffle/
+        with pytest.raises(SystemExit):
+            X.main(argv + ["--device", "cpu"])
+
+
+def test_fold_bundle_passes_the_label_kind(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(X, "build_frame", lambda panel, h, version, **k: (seen.update(k), fake_frame())[1])
+    panel = SimpleNamespace(dataset_id="abc", ohlcv=dict.fromkeys(SYMS))
+    assert X.fold_bundle(panel, 5, FOLD).label_kind == "adaptive" and seen == {}
+    assert X.fold_bundle(panel, 5, FOLD, label="xs").label_kind == "xs" and seen == {"label": "xs"}
+
+
+def test_files_of_another_label_kind_are_refused(tmp_path, tiny_bundle):
+    X.run_baseline(tiny_bundle, "prior_fixed", tmp_path / "a.parquet")
+    assert "label_kind" not in pd.read_parquet(tmp_path / "a.parquet").columns      # v1 files keep their columns
+    xs = replace(tiny_bundle, label_kind="xs")
+    with pytest.raises(ValueError, match="label_kind"):
+        X.run_baseline(xs, "prior_fixed", tmp_path / "a.parquet")
+    X.run_baseline(xs, "prior_fixed", tmp_path / "b.parquet")
+    assert set(pd.read_parquet(tmp_path / "b.parquet")["label_kind"]) == {"xs"}
+    X.run_baseline(xs, "prior_fixed", tmp_path / "b.parquet")                       # same kind: reused

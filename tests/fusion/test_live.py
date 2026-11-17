@@ -50,10 +50,28 @@ def test_status_precedence_seam_first():
     assert _status(_hist("2026-10-27", rets={5: -0.33})) == "SEAM"          # both hold: SEAM (prices untrustworthy) wins
 
 
-def test_decide_data_invalid_never_trades():
-    assert live.decide("SEAM")[0] == "DATA_INVALID"
-    assert live.decide("MISSING_SESSION") == ("DATA_INVALID", "MISSING_SESSION")
-    assert live.decide(None) == ("NO_TRADE", "no direction model (NO-GO)")
+def test_trend_flat_from_magnitude_else_direction():
+    assert live.trend(0.40, 0.5, 0.1) == "NO_TRADE"                 # weak magnitude -> flat, whatever the direction says
+    assert live.trend(0.61, 0.4, 0.3) == "LONG" and live.trend(0.61, 0.2, 0.3) == "AVOID"
+    assert live.trend(None, 0.5, 0.2) == "LONG" and live.trend(None, 0.2, 0.2) == "NO_TRADE"   # no volcast: 3-class argmax
+    assert live.trend(0.61, None, None) == "NO_TRADE"               # no direction probabilities: never up/down
+
+
+def test_explain_says_whether_news_agrees():
+    f = {"has_news": 1, "sentiment_mean_24h": 0.4}
+    up = live.explain("LONG", 0.61, "strong", 0.4, 0.3, f, ["lawsuit"])
+    assert "p_strong 0.61" in up and "tích cực" in up and "ủng hộ" in up and "lawsuit" in up
+    assert "trái chiều" in live.explain("AVOID", 0.61, None, 0.2, 0.3, f, [])
+    assert "Không có tin" in live.explain("NO_TRADE", 0.4, "weak", 0.2, 0.3, {"has_news": 0, "sentiment_mean_24h": None}, [])
+    assert "không có xác suất hướng" in live.explain("NO_TRADE", 0.61, "strong", None, None, f, [])
+
+
+def test_direction_probs_latest_session_per_symbol():
+    from tests.fusion.test_direction import _prices
+    p = _prices()
+    d = live.direction_probs(p)
+    assert set(d) == {(s, str(p.date.max().date()), h) for s in p.symbol.unique() for h in C.HORIZONS}
+    assert all(0 <= u <= 1 and 0 <= dn <= 1 and u + dn <= 1 + 1e-9 for u, dn in d.values())
 
 
 def test_holidays_gap_and_declared():
@@ -88,14 +106,17 @@ def test_rows_news_flags_and_extra_ticker():
     hist = pd.concat([_hist("2026-10-29", symbol=s) for s in ("ACB", "BID")])
     results = [_res("ACB", ["lawsuit"]), _res("ACB", hours_before_cutoff=30)]
     vol = {("ACB", "2026-10-29", 2): (0.61, "strong")}
-    rows = {(r[0], r[2]): r for r in live.rows(hist, results, vol, THU_1600, ["ACB", "BID"])}
+    dirp = {("ACB", "2026-10-29", 2): (0.25, 0.5), ("BID", "2026-10-29", 2): (0.5, 0.25)}
+    rows = {(r[0], r[2]): r for r in live.rows(hist, results, vol, THU_1600, ["ACB", "BID"], dirp)}
     a, b = rows["ACB", 2], rows["BID", 2]
-    assert a[1] == "2026-10-29" and a[3] == "NO_TRADE" and a[4:7] == (None, None, None) and a[7:9] == (0.61, "strong")
+    assert a[1] == "2026-10-29" and a[3] == "AVOID" and a[4:7] == (0.25, 0.5, -0.25) and a[7:9] == (0.61, "strong")
+    assert "trái chiều" in a[12]                                     # news in the fixture is positive, the label is down
     assert a[9] == 1 and a[10] is not None and json.loads(a[11]) == ["lawsuit"]
     assert rows["ACB", 5][7:9] == (None, None)                       # no vol_forecast row for h=5 in `vol`
-    assert b[3] == "NO_TRADE" and b[7:9] == (None, None) and b[9] == 0 and b[10] is None and json.loads(b[11]) == []
-    assert "no volcast row" in b[12] and b[12].startswith("no direction model (NO-GO)")
-    assert a[13] == "decision-v0-nogo"
+    assert b[3] == "LONG" and b[7:9] == (None, None) and b[9] == 0 and b[10] is None and json.loads(b[11]) == []
+    assert "không có volcast" in b[12] and "Không có tin" in b[12]
+    assert rows["ACB", 5][3] == "NO_TRADE" and rows["ACB", 5][4:7] == (None, None, None)
+    assert a[13] == live.VERSION == "decision-v1-trend"
 
 
 def test_main_writes_40_rows_in_memory():
@@ -104,15 +125,15 @@ def test_main_writes_40_rows_in_memory():
     hist = pd.concat([_hist("2026-10-29", symbol=s) for s in C.UNIVERSE])
     seam = _hist("2026-10-29", symbol="VIC", rets={5: -0.33})
     hist = pd.concat([hist[hist.symbol != "VIC"], seam])
-    live.main(now=THU_1600, c=c, hist=hist)
+    live.main(now=THU_1600, c=c, hist=hist, dirp={})
     rows = c.execute("SELECT * FROM fusion_decision").fetchall()
-    assert len(rows) == len(C.UNIVERSE) * 2 and {r["version"] for r in rows} == {"decision-v0-nogo"}
+    assert len(rows) == len(C.UNIVERSE) * 2 and {r["version"] for r in rows} == {live.VERSION}
     by = {(r["symbol"], r["h"]): r for r in rows}
     assert by["ACB", 2]["p_strong"] == 0.61 and by["ACB", 2]["decision"] == "NO_TRADE"
     assert by["GAS", 5]["has_news"] == 0 and by["GAS", 5]["risk_flags"] == "[]"      # no news: no exception
-    assert by["BID", 2]["p_strong"] is None and "no volcast row" in by["BID", 2]["reason"]
+    assert by["BID", 2]["p_strong"] is None and "không có volcast" in by["BID", 2]["reason"]
     assert by["VIC", 2]["decision"] == "DATA_INVALID" and by["VIC", 2]["reason"].startswith("SEAM")
-    live.main(now=THU_1600, c=c, hist=hist)                              # idempotent: INSERT OR REPLACE
+    live.main(now=THU_1600, c=c, hist=hist, dirp={})                              # idempotent: INSERT OR REPLACE
     assert c.execute("SELECT count(*) FROM fusion_decision").fetchone()[0] == 40
 
 
@@ -123,21 +144,21 @@ def _universe(last, **kw):
 def test_missing_session_run_never_overwrites_valid_row():
     c, hist = storage.connect(":memory:"), _universe("2026-10-28")           # data ends Wednesday
     _vol(c, "ACB", "2026-10-28")
-    live.main(now=pd.Timestamp("2026-10-28 16:00", tz=VN), c=c, hist=hist)   # session closed: valid rows
+    live.main(now=pd.Timestamp("2026-10-28 16:00", tz=VN), c=c, hist=hist, dirp={})   # session closed: valid rows
     c.execute("UPDATE fusion_decision SET created_at='2000-01-01T00:00:00Z'")   # sentinel: a rewrite would change it
     before = [tuple(r) for r in c.execute("SELECT * FROM fusion_decision ORDER BY symbol, h")]
     assert len(before) == 40 and {r[3] for r in before} == {"NO_TRADE"}
-    live.main(now=pd.Timestamp("2026-10-29 15:10", tz=VN), c=c, hist=hist)   # Thursday, before the sync: Thu is due
+    live.main(now=pd.Timestamp("2026-10-29 15:10", tz=VN), c=c, hist=hist, dirp={})   # Thursday, before the sync: Thu is due
     assert [tuple(r) for r in c.execute("SELECT * FROM fusion_decision ORDER BY symbol, h")] == before
 
 
 def test_missing_session_new_key_recorded_then_valid_run_replaces_it():
     c, hist = storage.connect(":memory:"), _universe("2026-10-28")
     _vol(c, "ACB", "2026-10-28")
-    live.main(now=pd.Timestamp("2026-10-29 15:10", tz=VN), c=c, hist=hist)   # nothing stored yet: fail-closed row is written
+    live.main(now=pd.Timestamp("2026-10-29 15:10", tz=VN), c=c, hist=hist, dirp={})   # nothing stored yet: fail-closed row is written
     r = c.execute("SELECT * FROM fusion_decision WHERE symbol='ACB' AND h=2").fetchall()
     assert len(r) == 1 and r[0]["decision"] == "DATA_INVALID" and r[0]["reason"] == "MISSING_SESSION"
-    live.main(now=pd.Timestamp("2026-10-29 10:00", tz=VN), c=c, hist=hist)   # Thursday not due yet: valid, replaces the row
+    live.main(now=pd.Timestamp("2026-10-29 10:00", tz=VN), c=c, hist=hist, dirp={})   # Thursday not due yet: valid, replaces the row
     r = c.execute("SELECT * FROM fusion_decision WHERE symbol='ACB' AND h=2").fetchall()
     assert len(r) == 1 and r[0]["decision"] == "NO_TRADE" and r[0]["p_strong"] == 0.61
 
@@ -147,7 +168,7 @@ def test_data_invalid_row_carries_no_signal():
     _vol(c, "ACB", "2026-10-28")
     hist = _universe("2026-10-28").query("symbol != 'ACB'")
     hist = pd.concat([hist, _hist("2026-10-28", symbol="ACB", rets={5: -0.33})])
-    live.main(now=pd.Timestamp("2026-10-28 16:00", tz=VN), c=c, hist=hist)
+    live.main(now=pd.Timestamp("2026-10-28 16:00", tz=VN), c=c, hist=hist, dirp={})
     r = c.execute("SELECT * FROM fusion_decision WHERE symbol='ACB'").fetchall()
     assert len(r) == 2 and all(x["decision"] == "DATA_INVALID" and x["reason"] == "SEAM" for x in r)
     assert all(x["p_strong"] is None and x["call"] is None for x in r)

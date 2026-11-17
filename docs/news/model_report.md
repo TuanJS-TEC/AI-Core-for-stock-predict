@@ -1002,3 +1002,80 @@ Reading, beyond the rule (descriptive, not part of it): the margin is weak. 5 of
 its mean). The gain is all at h=5. At h=2, `real` is below the permutation mean. Per the advance caveat, no p-value is
 claimed: this is weak evidence that BCTC carries information beyond a ticker code at T+5, and none at T+2. The live volcast
 (`volcast-v2.2`) does not change because of this check.
+
+## News fusion for the magnitude target: pre-registered entry (written 2026-11-11T22:20+07:00, before any run)
+
+Drafted by the assistant; **the project owner confirms this entry before any candidate below is run on real data.**
+
+**Why.** The direction target has no usable signal from news (`text_return_report.txt`, `mmf_dev_report.md` R3,
+`mmf_xs_dev_report.md`). On the magnitude target (`absmove`) news features passed the 2026-10-29 rule (+0.0082 mean test
+AUC over a 3-feature price model, 20 tickers). The live volcast (15 price + BCTC features, 15 tickers) has never been
+compared with the same model plus news. Hypothesis: adding news features to the volcast features improves the magnitude
+forecast. No evidence yet that it does; the earlier gain was small and measured against a weaker price model.
+
+**Data.** `volcast.bars`, the 15 `volcast.SYMBOLS`, folds `walk_forward.FOLDS` with fold C frozen at
+`--test-end 2026-10-30`, split and purge by `walk_forward._split`. Label `y{h}` = `absmove` on the adjusted close, as
+in `volcast.walk`, h in {2, 5}. Sentiment per fold from `phobert-fold{A,B,C}` already in `nlp.db` (each trained on
+labels before the fold's validation window), cutoff = close of day t, `mode="backtest"`.
+
+**Arms (fixed, no tuning after seeing results).** Both use the same rows (complete `FEATS` and news features).
+- `price`: `volcast.FEATS` (10 price + 5 BCTC). This is the control.
+- `fusion`: `volcast.FEATS` + 14 news features = `trial_forecast.TEXT` (8) + `trial_forecast.NEWS3` (6), built by
+  `add_text`, then `add_news_surprise` on raw counts, then `rank_cs` on `COUNTS` (rank mode `counts`, fixed).
+- Model kind per (h, fold, arm): `volcast.MODELS` `logit` or `gbm`, whichever has the lower validation log-loss when fit
+  on train; then refit on train + validation and scored once on test. No other hyper-parameter is searched.
+
+**Primary criterion R6 (per h, exactly 2 tests).** Paired log-loss difference `fusion - price` on the test rows of the
+three folds pooled, 95% block bootstrap by date (block 20 sessions, 2000 draws, seed 0).
+- "Có bằng chứng": fusion has the lower mean test log-loss in at least 2 of 3 folds and the pooled CI upper bound < 0.
+- "Có tín hiệu, bằng chứng yếu": mean < 0 but the CI contains 0, or the CI passes without 2 of 3 folds.
+- "Chưa chứng minh được": otherwise.
+
+**Reported, not used to decide:** test AUC and Brier per arm and fold, per-fold CIs of the same difference, the model
+kind picked, a `news` arm (the 14 news features alone), accuracy and coverage of the existing Wilson gate
+(`volcast.walk`) for `price` and `fusion`, and a permutation control: the 14 news features shuffled between symbols
+within each date (20 permutations, seeds 0..19), R6 mean recomputed for each.
+
+**Stopping rule.** If R6 is "Chưa chứng minh được" at both h, stop adding news features to the magnitude model and
+record: on these 15 tickers, news adds nothing measurable to price + BCTC for magnitude either. No second feature set or
+rank mode is tried because the result looks poor. If R6 reaches "Có bằng chứng" at one h or more, shipping a new volcast
+version is a separate owner decision and needs one confirmation read on sessions after 2026-10-30 (at least 40 matured
+sessions per h, read once). The live `volcast-v2.2` does not change because of this entry.
+
+**Disclosed in advance.**
+- Not blind: the three test windows were already seen for the control (v2.2 eval table: accuracy on gated calls) and for
+  news features over a 3-feature price model (`news3_report.txt`: AUC, 20 tickers). The comparison registered here
+  (15 features + news, log-loss, 15 tickers) has not been run.
+- `bars` reads the live price files, not a frozen snapshot; fold C is frozen only by `--test-end`.
+- 15 tickers that move together; the two R6 tests are not corrected for multiplicity; everything else is exploratory.
+- Sessions after 2026-10-30 are not read by this run.
+
+### News fusion result (run 2026-11-11, once, after the owner confirmed the entry; full output `data/news/reports/news_fusion_report.txt`)
+
+`python -m ai_core.models.volcast.news_fusion --test-end 2026-10-30`, 15 symbols, 20 permutations. Development
+windows, already seen as disclosed; not a final result.
+
+| h | fusion - price (log-loss) | 95% CI | folds won | verdict (R6) |
+|---|---------------------------|--------|-----------|--------------|
+| 2 | +0.0006 | -0.0033 to +0.0047 | 1/3 | Chưa chứng minh được |
+| 5 | -0.0015 | -0.0085 to +0.0053 | 1/3 | Có tín hiệu, bằng chứng yếu |
+
+Rule applied mechanically: no "Có bằng chứng" at either h, so nothing qualifies for a new volcast version. The stopping
+rule (both h "Chưa chứng minh được") is not met, because h=5 has a mean below 0. The live `volcast-v2.2` is unchanged.
+
+Reported, not used to decide:
+- Per fold, the only cell whose CI excludes 0 is fold A at h=5 (-0.0083, -0.0156 to -0.0008). Fold B at h=5 goes the
+  other way (+0.0038) and the other four cells are within +-0.0015.
+- Test AUC, fusion vs price: h=2 0.566/0.575, 0.623/0.628, 0.565/0.568; h=5 0.619/0.606, 0.643/0.655, 0.584/0.582
+  (folds A, B, C). Fusion has the higher AUC in 2 of 6 cells.
+- News alone is worse than price + BCTC at both h (+0.0080, CI +0.0026 to +0.0135 at h=2; +0.0062 at h=5).
+- Permutation control: at h=5 the real difference (-0.0015) is below all 20 shuffled runs (mean +0.0006, sd 0.0008);
+  at h=2 it is above all 20 (real +0.0006, shuffled mean -0.0003). So the small h=5 gain is tied to each ticker's own
+  news, and at h=2 the ticker's own news is slightly worse than another ticker's.
+- Wilson gate: with news, fold A issues no call at either h (price: 433 and 429 calls), fold B gains calls at h=2 (218
+  at 0.688; price: none) and loses coverage at h=5 (235 calls at 0.766 vs 712 at 0.692), fold C is about the same at
+  h=2 and lower at h=5 (0.609 on 550 vs 0.635 on 395). No consistent direction.
+
+Reading, beyond the rule: the effect of news on the magnitude forecast is within +-0.002 log-loss and changes sign
+between folds. The +0.0082 AUC of 2026-10-29 was measured over a 3-feature price model; against the 15 volcast features
+it does not carry over.

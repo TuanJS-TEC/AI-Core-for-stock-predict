@@ -9,6 +9,12 @@ D = 32; EMB = 4; DROPOUT = 0.2; PRICE_KINDS = ("lstm", "gru", "transformer")
 LR = 1e-3; WD = 1e-2; BATCH = 256; MAX_EPOCHS = 60; PATIENCE = 10
 SEEDS = (59, 60, 61, 62, 63); SELECT_SEEDS = SEEDS[:2]
 FOLD_NLP = {"A": "phobert-foldB", "B": "phobert-foldB", "C": "phobert-foldC", "F": "phobert-phobert-v1"}
+# backward folds of prereg addendum R8 (2026-11-12): make_date_folds(calendar, "2025-07-25", n=3) on snapshot 24251acc1a5695bd,
+# frozen here like DATE_FOLDS. "Fb" is the addendum's fold F ("F" is the final fold below).
+BACK_NLP = {"D": "phobert-foldA", "E": "phobert-foldA", "Fb": "phobert-foldA"}     # trained on labels before 2024-01-01
+BACK_FOLDS = (("D", "2024-04-19", "2024-07-22", "2024-10-21", "2025-01-17"),
+              ("E", "2024-07-22", "2024-10-21", "2025-01-17", "2025-04-24"),
+              ("Fb", "2024-10-21", "2025-01-17", "2025-04-24", "2025-07-25"))
 FINAL_FOLD = ("F", "2026-05-04", "2026-07-30", "2026-10-30")
 HOLDOUT_AFTER = "2026-10-30"; HOLDOUT_MIN = 40; HOLDOUT_MIN_EARLY = 20
 HOLDOUT_BLOCK = 5                    # bootstrap block of the final zone (prereg addendum 2026-11-10)
@@ -20,6 +26,7 @@ LEAK_ALARM_F1 = 0.50; LEAK_ALARM_AUC = 0.65
 COST = trading.COST
 DATA = paths.DATA / "mmf"; REPORTS = paths.ROOT / "docs/reports"
 NLP_DB = paths.NEWS / "nlp.db"; BCTC_FILE = paths.NEWS / "bctc.parquet"
+BCTC_Q_DIR = paths.DATA / "reference"    # quarterly statements with publication dates (fund_quarter.py, prereg R12)
 # v2 variants: external training universe, VNINDEX
 EXT_DIR = paths.PRICES_EXT; EXT_UNIVERSE = paths.CONFIG / "ext_universe.csv"
 INDEX = "VNINDEX"; EXT_MIN_SESSIONS = 500

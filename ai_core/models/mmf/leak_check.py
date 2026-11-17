@@ -3,6 +3,7 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
+from sklearn.metrics import roc_auc_score
 
 from . import config as C
 from . import evaluate as E, experiment as X, train as TR
@@ -18,7 +19,10 @@ def _score(b, device, max_epochs):
     fit = TR.fit_net(X._net_maker(b, "dl_price", KIND), b.samples["train"], b.samples["tune"], SEED, device, max_epochs)
     z = {k: TR.predict_logits(fit["net"], b.samples[k], device) for k in ("calib", "eval")}
     t, _ = X.calibrate(b, z["calib"])
-    sc = E.scores(b.samples["eval"].y, E.apply_temperature(z["eval"], t))
+    y, p = b.samples["eval"].y, E.apply_temperature(z["eval"], t)
+    sc = E.scores(y, p)
+    if b.label_kind == "mag":      # two classes: AUC of strong vs weak
+        return roc_auc_score(y == 1, p[:, 1] / (p[:, 0] + p[:, 1])), sc["logloss"]
     return sc["auc_up_down"], sc["logloss"]
 
 
@@ -48,9 +52,11 @@ def main(argv=None):
     ap.add_argument("--perms", type=int, default=20)
     ap.add_argument("--h", type=int, nargs="+", default=list(C.HORIZONS), choices=C.HORIZONS)
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--label", choices=("adaptive", "xs", "mag"), default="adaptive")
     ap.add_argument("--out", default=C.DATA / "leak_check.md")
     a = ap.parse_args(argv)
-    print(write(run(build_panel(C.TICKERS, stock_dir=a.stock_dir), a.h, a.perms, a.device), a.out))
+    build = lambda p, h, f: X.fold_bundle(p, h, f, label=a.label)
+    print(write(run(build_panel(C.TICKERS, stock_dir=a.stock_dir), a.h, a.perms, a.device, build=build), a.out))
 
 
 if __name__ == "__main__":

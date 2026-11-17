@@ -121,6 +121,21 @@ CREATE TABLE IF NOT EXISTS vol_forecast (
     PRIMARY KEY (symbol, base_date, h, model_version)
 );
 
+-- rangecast (ai_core.models.rangecast): 80% price band per (symbol, session, horizon). Rows are never rewritten.
+CREATE TABLE IF NOT EXISTS range_forecast (
+    symbol         TEXT NOT NULL,
+    base_date      TEXT NOT NULL,             -- YYYY-MM-DD, the newest stored session the band starts from
+    h              INTEGER NOT NULL,          -- horizon in sessions
+    close          REAL NOT NULL,             -- close of base_date, thousand VND (vendor-adjusted)
+    lo_pct         REAL NOT NULL,             -- lower bound of the 80% band as a return on close (< 0)
+    hi_pct         REAL NOT NULL,             -- upper bound (> 0)
+    sigma          REAL NOT NULL,             -- forecast size of the h-session move (log return)
+    risk_level     TEXT NOT NULL CHECK (risk_level IN ('low','normal','high')),   -- sigma vs the symbol's last 250
+    model_version  TEXT NOT NULL,
+    created_at     TEXT NOT NULL,             -- UTC ISO
+    PRIMARY KEY (symbol, base_date, h, model_version)
+);
+
 -- Live decision board (ai_core.live). Direction was NO-GO, so decision is NO_TRADE or DATA_INVALID and p_up/p_down/margin
 -- stay NULL; p_strong/call come from vol_forecast and are NULL for symbols volcast does not forecast.
 CREATE TABLE IF NOT EXISTS fusion_decision (

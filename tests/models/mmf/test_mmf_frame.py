@@ -75,3 +75,36 @@ def test_block_rows_only_selects_x_fund_comes_from_scaled_frame(frame):
     a, b = (W.make_samples(sc, r, PC.TICKERS) for r in (u, sc.loc[u.index]))
     np.testing.assert_array_equal(a.x_fund, b.x_fund)
     assert np.abs(a.x_fund).max() <= W.CLIP
+
+
+def test_xs_label_swaps_label_columns_only(panel, frame):
+    from ai_core.prices.labels import make_xs_labels
+    xs = FR.build_frame(panel, 5, "x", text_fn=no_text, label="xs")
+    assert list(xs.columns) == list(frame.columns) and len(xs) == len(frame)
+    same = [c for c in frame.columns if c not in FR.LABEL_COLS and c != "usable"]
+    pd.testing.assert_frame_equal(xs[same], frame[same])
+    want = make_xs_labels({s: panel.on_calendar(s) for s in panel.ohlcv}, 5)["FPT"]
+    got = xs[xs.symbol == "FPT"].set_index("as_of_session")
+    pd.testing.assert_series_equal(got["label"], want["label"], check_names=False)
+    pd.testing.assert_series_equal(got["realized_return"], want["realized_return"], check_names=False)
+    assert not xs["label"].equals(frame["label"])
+    assert (xs.loc[xs.usable, "status"] == "ok").all() and xs.usable.sum() > 1000
+
+
+def test_default_label_is_unchanged(panel, frame):
+    pd.testing.assert_frame_equal(FR.build_frame(panel, 5, "x", text_fn=no_text, label="adaptive"), frame)
+
+
+def test_mag_label_swaps_label_columns_only(panel, frame):
+    from ai_core.prices.labels import make_mag_labels
+    mag = FR.build_frame(panel, 5, "x", text_fn=no_text, label="mag")
+    assert list(mag.columns) == list(frame.columns) and len(mag) == len(frame)
+    same = [c for c in frame.columns if c not in FR.LABEL_COLS and c != "usable"]
+    pd.testing.assert_frame_equal(mag[same], frame[same])
+    want = make_mag_labels({s: panel.on_calendar(s) for s in panel.ohlcv}, 5)["FPT"]
+    got = mag[mag.symbol == "FPT"].set_index("as_of_session")
+    pd.testing.assert_series_equal(got["label"], want["label"], check_names=False)
+    u = mag[mag.usable]
+    assert set(u["label"].unique()) == {0, 1} and (u.status == "ok").all()
+    per_day = u.groupby("as_of_session")["label"].agg(["sum", "count"])
+    assert (per_day.loc[per_day["count"] == 15, "sum"] == 7).mean() > 0.99      # 7 of 15 strong unless tied

@@ -2,6 +2,6 @@
 # vnstock 6.0.0 is the stable release (the rc builds were disabled by the vendor on 2026-11-11, code VNSTOCK_RELEASE_DISABLED).
 --extra-index-url https://vnstocks.com/api/packages
 vnstock==6.0.0
-vnstock-oapi==0.1.1
+vnstock-oapi[stream]==0.1.1
 pandas>=2.0
 pyarrow==26.0.0

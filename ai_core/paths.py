@@ -17,4 +17,5 @@ PRICES = DATA / "prices"
 PRICES_EXT = DATA / "prices_ext"
 NEWS = DATA / "news"
 EVENTS = PRICES / "events"     # corporate-event calendar snapshots, one parquet per download day
+DNSE = DATA / "dnse"                # raw DNSE LightSpeed stream frames, one JSONL per day
 RANGECAST = DATA / "rangecast"     # price-range model: bundle, evaluation tables
